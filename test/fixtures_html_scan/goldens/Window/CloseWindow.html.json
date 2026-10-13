@@ -1,0 +1,24 @@
+{
+  "name": "CloseWindow",
+  "library": "Window",
+  "file": "Window/CloseWindow.html",
+  "syntax": [
+    "CloseWindow(#Window)"
+  ],
+  "description": "Close the specified window.",
+  "parameters": [
+    {
+      "name": "#Window",
+      "description": "The window to close. If #PB_All is specified, all the remaining windows are closed."
+    }
+  ],
+  "returnValue": "None.",
+  "remarks": "All remaining opened windows are automatically closed when the program ends.\n\nNote: The following items created for a window are also automatically freed when the window\nis closed: Gadgets, Keyboard shortcuts,\nMenus, StatusBars, Timers,\nToolbars and binded events (with BindEvent()).",
+  "example": "",
+  "os": [
+    "All"
+  ],
+  "seeAlso": [
+    "OpenWindow"
+  ]
+}

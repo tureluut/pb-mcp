@@ -1,0 +1,36 @@
+{
+  "name": "Base64DecoderBuffer",
+  "library": "Cipher",
+  "file": "Cipher/Base64DecoderBuffer.html",
+  "syntax": [
+    "Result = Base64DecoderBuffer(*InputBuffer, InputSize, *OutputBuffer, OutputSize)"
+  ],
+  "description": "Decodes the specified Base64 encoded buffer.",
+  "parameters": [
+    {
+      "name": "*InputBuffer",
+      "description": "The buffer containing the encoded data."
+    },
+    {
+      "name": "InputSize",
+      "description": "The size of the input buffer."
+    },
+    {
+      "name": "*OutputBuffer",
+      "description": "The output buffer where the plain data will be copied."
+    },
+    {
+      "name": "OutputSize",
+      "description": "The size of the output buffer.\n\nThe output buffer can be up to 33% smaller than the input buffer, with a minimum size of 64 bytes.\nIt's recommended to get a slightly larger buffer, like 30% smaller to avoid overflows."
+    }
+  ],
+  "returnValue": "Returns the length of the decoded data in bytes.",
+  "remarks": "",
+  "example": "Example$ = \"This is a test string!\" \n  Decoded$ = Space(1024) \n  Encoded$ = Space(1024) \n    \n  Debug Base64EncoderBuffer(@Example$, StringByteLength(Example$), @Encoded$, StringByteLength(Encoded$))\n  Debug Encoded$ \n    \n  Debug Base64DecoderBuffer(@Encoded$, StringByteLength(Encoded$), @Decoded$, StringByteLength(Decoded$))\n  Debug Decoded$\n\nDataSection\n  � Test:\n  � Data.a $00, $01, $02, $03, $04, $05, $06, $07\n  � Data.a $08, $09, $0A, $0B, $0C, $0D, $0E, $0F\n  � TestEnd:\n  EndDataSection\n  \n  Size = (?TestEnd - ?Test) * 1.35\n  If Size < 64\n  � Size = 64\n  EndIf\n  \n  *EncodeBuffer = AllocateMemory(Size)\n  Size = Base64EncoderBuffer(?Test, ?TestEnd - ?Test, *EncodeBuffer, MemorySize(*EncodeBuffer))\n  Encoded$ = PeekS(*EncodeBuffer, Size, #PB_Ascii)\n  Debug Encoded$\n  \n  *DecodeBuffer = AllocateMemory(Size)\n  Size = PokeS(*EncodeBuffer, Encoded$, StringByteLength(Encoded$, #PB_Ascii), #PB_Ascii|#PB_String_NoZero)\n  Size = Base64DecoderBuffer(*EncodeBuffer, Size, *DecodeBuffer, MemorySize(*DecodeBuffer))\n  ShowMemoryViewer(*DecodeBuffer, Size)",
+  "os": [
+    "All"
+  ],
+  "seeAlso": [
+    "Base64EncoderBuffer"
+  ]
+}

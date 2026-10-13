@@ -1,0 +1,91 @@
+<html><head><title>Base64DecoderBuffer</title></head>
+<body bgcolor="#FFFFDF" link="#009999" vlink="#006666" alink="#006666">
+<font face="Arial" size="2"><p align="center"><b><font size="4">Base64DecoderBuffer()</font></b></p>
+<p><b>Syntax</b></p><blockquote>
+Result = <font color="#006666"><b>Base64DecoderBuffer</b></font>(*InputBuffer, InputSize, *OutputBuffer, OutputSize)  </blockquote>
+
+</blockquote>
+<b>Description</b><br><blockquote>
+
+Decodes the specified <a href="base64encoderbuffer.html">Base64 encoded</a> buffer. 
+
+</blockquote><p><b>Parameters</b></p><blockquote>
+<style type="text/css">
+table.parameters { border-spacing: 0px; border-style: none; border-collapse: collapse; }
+table.parameters td { border-width: 1px; padding: 6px; border-style: solid; border-color: gray; vertical-align: top; font-family:Arial; font-size:10pt; }
+</style>
+<table width="90%" class="parameters">
+<tr><td width="10%"><i>*InputBuffer</i></td>
+<td width="90%"> 
+The buffer containing the encoded data. 
+
+</td></tr>
+<tr><td><i>InputSize</i></td>
+<td> 
+The size of the input buffer. 
+
+</td></tr>
+<tr><td><i>*OutputBuffer</i></td>
+<td> 
+The output buffer where the plain data will be copied. 
+
+</td></tr>
+<tr><td><i>OutputSize</i></td>
+<td> 
+The size of the output buffer. 
+<br>
+<br>
+The output buffer can be up to 33% smaller than the input buffer, with a minimum size of 64 bytes. 
+It's recommended to get a slightly larger buffer, like 30% smaller to avoid overflows. 
+
+</td></tr>
+</table>
+</blockquote><p><b>Return value</b></p><blockquote>
+
+Returns the length of the decoded data in bytes. 
+
+</blockquote><p><b>Example</b></p><blockquote>
+
+<pre><font face="Courier New, Courier, mono"size="2">  Example$ = &quot;This is a test string!&quot; 
+  Decoded$ =<font color="#006666"> Space</font>(1024) 
+  Encoded$ =<font color="#006666"> Space</font>(1024) 
+    
+  <b><font color="#006666">Debug</font></b> <font color="#006666">Base64EncoderBuffer</font>(@Example$,<font color="#006666"> StringByteLength</font>(Example$), @Encoded$,<font color="#006666"> StringByteLength</font>(Encoded$))
+  <b><font color="#006666">Debug</font></b> Encoded$ 
+    
+  <b><font color="#006666">Debug</font></b> <font color="#006666">Base64DecoderBuffer</font>(@Encoded$,<font color="#006666"> StringByteLength</font>(Encoded$), @Decoded$,<font color="#006666"> StringByteLength</font>(Decoded$))
+  <b><font color="#006666">Debug</font></b> Decoded$
+</font></pre>
+
+</blockquote><p><b>Example:</b> Encoding & Decoding from a DataSection</p><blockquote>
+
+<pre><font face="Courier New, Courier, mono"size="2">  <b><font color="#006666">DataSection</font></b>
+    Test:
+    <b><font color="#006666">Data</font></b>.a $00, $01, $02, $03, $04, $05, $06, $07
+    <b><font color="#006666">Data</font></b>.a $08, $09, $0A, $0B, $0C, $0D, $0E, $0F
+    TestEnd:
+  <b><font color="#006666">EndDataSection</font></b>
+  
+  Size = (?TestEnd - ?Test) * 1.35
+  <b><font color="#006666">If</font></b> Size &lt; 64
+    Size = 64
+  <b><font color="#006666">EndIf</font></b>
+  
+  *EncodeBuffer =<font color="#006666"> AllocateMemory</font>(Size)
+  Size =<font color="#006666"> Base64EncoderBuffer</font>(?Test, ?TestEnd - ?Test, *EncodeBuffer,<font color="#006666"> MemorySize</font>(*EncodeBuffer))
+  Encoded$ =<font color="#006666"> PeekS</font>(*EncodeBuffer, Size, <font color="#924B72">#PB_Ascii</font>)
+  <b><font color="#006666">Debug</font></b> Encoded$
+  
+  *DecodeBuffer =<font color="#006666"> AllocateMemory</font>(Size)
+  Size =<font color="#006666"> PokeS</font>(*EncodeBuffer, Encoded$,<font color="#006666"> StringByteLength</font>(Encoded$, <font color="#924B72">#PB_Ascii</font>), <font color="#924B72">#PB_Ascii</font>|<font color="#924B72">#PB_String_NoZero</font>)
+  Size =<font color="#006666"> Base64DecoderBuffer</font>(*EncodeBuffer, Size, *DecodeBuffer,<font color="#006666"> MemorySize</font>(*DecodeBuffer))
+<font color="#006666">  ShowMemoryViewer</font>(*DecodeBuffer, Size)
+</font></pre>
+
+</blockquote><p><b>See Also</b></p><blockquote>
+
+<a href="base64encoderbuffer.html">Base64EncoderBuffer()</a> 
+
+</Blockquote><p><b>Supported OS </b><Blockquote>All</Blockquote></p><center><- <a href=base64decoder.html>Base64Decoder()</a> - <a href=index.html>Cipher Index</a> - <a href=base64encoder.html>Base64Encoder()</a> -><br><br>
+
+</body></html>

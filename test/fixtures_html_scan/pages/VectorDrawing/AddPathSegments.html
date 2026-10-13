@@ -1,0 +1,82 @@
+<html><head><title>AddPathSegments</title></head>
+<body bgcolor="#FFFFDF" link="#009999" vlink="#006666" alink="#006666">
+<font face="Arial" size="2"><p align="center"><b><font size="4">AddPathSegments()</font></b></p>
+<p><b>Syntax</b></p><blockquote>
+<font color="#006666"><b>AddPathSegments</b></font>(Segments$ [, Flags])</blockquote>
+
+</blockquote>
+<b>Description</b><br><blockquote>
+
+Add multiple segments described in string format to the vector drawing path. This command 
+can be used to reproduce the path commands recorded with the <a href="pathsegments.html">PathSegments()</a> command. 
+
+</blockquote><p><b>Parameters</b></p><blockquote>
+<style type="text/css">
+table.parameters { border-spacing: 0px; border-style: none; border-collapse: collapse; }
+table.parameters td { border-width: 1px; padding: 6px; border-style: solid; border-color: gray; vertical-align: top; font-family:Arial; font-size:10pt; }
+</style>
+<table width="90%" class="parameters">
+<tr><td width="10%"><i>Segments$</i></td>
+<td width="90%"> 
+Specifies the path commands to execute. 
+<br>
+<br>
+The segment description consists of one-letter commands followed by the appropriate number of coordinates for 
+the command. Values can be separated by whitespace or comma. Commands in uppercase interpret their arguments as 
+absolute coordinates, the equivalent command in lowercase interprets its arguments as relative the most recent 
+added path segment. 
+
+<pre><font face="Courier New, Courier, mono"size="2">  M x y                <a href="movepathcursor.html">MovePathCursor()</a>
+  L x y                <a href="addpathline.html">AddPathLine()</a>
+  C x1 y1 x2 y2 x3 y3  <a href="addpathcurve.html">AddPathCurve()</a>
+  Z                    <a href="closepath.html">ClosePath()</a>
+</font></pre>
+
+In addition to this simplified segments syntax, the command also accepts path descriptions in the format defined 
+by the <a href="https://www.w3.org/TR/SVGTiny12/paths.html#PathData">SVG Tiny standard</a> which contains some 
+additional command letters. 
+
+</td></tr>
+<tr><td><i>Flags (optional)</i></td>
+<td> 
+This can be a combination of the following values: 
+<pre><font face="Courier New, Courier, mono"size="2">  <font color="#924B72">#PB_Path_Default</font>          : No special behavior (default value)
+  <font color="#924B72">#PB_Path_Relative</font>         : Interpret all coordinates as relative to the current path cursor
+</font></pre>
+
+</td></tr>
+</table>
+</blockquote><p><b>Return value</b></p><blockquote>
+None.
+
+
+</blockquote><p><b>Example</b></p><blockquote>
+
+
+<pre><font face="Courier New, Courier, mono"size="2">  <b><font color="#006666">If</font></b> <font color="#006666">OpenWindow</font>(0, 0, 0, 400, 200, &quot;VectorDrawing&quot;, <font color="#924B72">#PB_Window_SystemMenu</font> | <font color="#924B72">#PB_Window_ScreenCentered</font>)
+<font color="#006666">    CanvasGadget</font>(0, 0, 0, 400, 200)
+
+    <b><font color="#006666">If</font></b> <font color="#006666">StartVectorDrawing</font>(<font color="#006666">CanvasVectorOutput</font>(0))
+      
+<font color="#006666">      AddPathSegments</font>(&quot;M 40 20 L 120 20 L 120 60 L 200 60 L 200 100 L 280 100 L 280 140 L 360 140 L 360 180&quot;)
+<font color="#006666">      VectorSourceColor</font>(<font color="#006666">RGBA</font>(255, 0, 0, 255))
+<font color="#006666">      StrokePath</font>(10, <font color="#924B72">#PB_Path_RoundCorner</font>)
+    
+<font color="#006666">      StopVectorDrawing</font>()
+    <b><font color="#006666">EndIf</font></b>
+    
+    <b><font color="#006666">Repeat</font></b>
+      Event =<font color="#006666"> WaitWindowEvent</font>()
+    <b><font color="#006666">Until</font></b> Event = <font color="#924B72">#PB_Event_CloseWindow</font>
+  <b><font color="#006666">EndIf</font></b>
+</font></pre>
+
+<p><img src="../HelpPictures/addpathline.png"></p>
+
+</blockquote><p><b>See Also</b></p><blockquote>
+
+<a href="pathsegments.html">PathSegments()</a> 
+
+</Blockquote><p><b>Supported OS </b><Blockquote>All</Blockquote></p><center><- <a href=addpathline.html>AddPathLine()</a> - <a href=index.html>VectorDrawing Index</a> - <a href=addpathtext.html>AddPathText()</a> -><br><br>
+
+</body></html>

@@ -1,0 +1,26 @@
+{
+  "name": "CameraDirection",
+  "library": "Camera",
+  "file": "Camera/CameraDirection.html",
+  "syntax": [
+    "CameraDirection(#Camera, x, y, z)"
+  ],
+  "description": "Changes the direction of a camera. The position of the camera is not changed.",
+  "parameters": [
+    {
+      "name": "#Camera",
+      "description": "The camera to use."
+    },
+    {
+      "name": "x, y, z",
+      "description": "The direction vector (usually values between -1.0 and 1.0, if not it will be automatically normalized)."
+    }
+  ],
+  "returnValue": "None.",
+  "remarks": "",
+  "example": "",
+  "os": [
+    "All"
+  ],
+  "seeAlso": []
+}

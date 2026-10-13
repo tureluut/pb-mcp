@@ -1,0 +1,94 @@
+<html><head><title>BindEvent</title></head>
+<body bgcolor="#FFFFDF" link="#009999" vlink="#006666" alink="#006666">
+<font face="Arial" size="2"><p align="center"><b><font size="4">BindEvent()</font></b></p>
+<p><b>Syntax</b></p><blockquote>
+<font color="#006666"><b>BindEvent</b></font>(Event, @Callback() [, Window [, Object [, EventType]]])  </blockquote>
+
+</blockquote>
+<b>Description</b><br><blockquote>
+
+Bind an event to a callback. It's an additional way to handle events in PureBasic, 
+which works without problem with the regulars <a href="windowevent.html">WindowEvent()</a> / <a href="waitwindowevent.html">WaitWindowEvent()</a> 
+commands. It also allows to have real-time event notifications as 
+the callback can be invoked as soon as the event occurs (useful for 
+<a href="../gadget/scrollbargadget.html">ScrollBarGadget()</a>, live window resize, etc.). An event can be unbound with <a href="unbindevent.html">UnbindEvent()</a>. 
+
+</blockquote><p><b>Parameters</b></p><blockquote>
+<style type="text/css">
+table.parameters { border-spacing: 0px; border-style: none; border-collapse: collapse; }
+table.parameters td { border-width: 1px; padding: 6px; border-style: solid; border-color: gray; vertical-align: top; font-family:Arial; font-size:10pt; }
+</style>
+<table width="90%" class="parameters">
+<tr><td width="10%"><i>Event</i></td>
+<td width="90%"> 
+The event to bind. For a full list of events, see <a href="windowevent.html">WindowEvent()</a>. Custom 
+events are also supported, when using <a href="postevent.html">PostEvent()</a>. 
+
+</td></tr>
+<tr><td><i>@Callback()</i></td>
+<td> 
+The callback procedure to call when the event occurs. It has to be declared like this: 
+<pre><font face="Courier New, Courier, mono"size="2">  <b><font color="#006666">Procedure</font></b> <font color="#006666">EventHandler</font>()
+    <font color="#006666">; Code</font>
+  <b><font color="#006666">EndProcedure</font></b>
+</font></pre>
+Regular functions like <a href="eventgadget.html">EventGadget()</a>, <a href="eventwindow.html">EventWindow()</a>, <a href="eventmenu.html">EventMenu()</a>, <a href="eventtype.html">EventType()</a> and <a href="eventdata.html">EventData()</a> are 
+available within the callback to get more information about the event. <br>
+<br>
+Note: <a href="windowevent.html">WindowEvent()</a> and <a href="waitwindowevent.html">WaitWindowEvent()</a> should never be called from inside the callback 
+or the program can be locked or have wrong behavior. 
+
+
+</td></tr>
+<tr><td><i>Window (optional)</i></td>
+<td> 
+The #Window number to bind the event to. The event will be dispatched only when occurring on this 
+window. <font color="#924B72">#PB_All</font> can be specified to bind the event to all windows (if specified, 'Object' and 
+'EventType' parameters have to be set to <font color="#924B72">#PB_All</font> as well). 
+
+</td></tr>
+<tr><td><i>Object (optional)</i></td>
+<td> 
+The object number to bind the event to. It can be a <a href="../gadget/index.html">gadget</a>, 
+<a href="../menu/index.html">menuitem</a> or <a href="../systray/index.html">systray</a> number. <font color="#924B72">#PB_All</font> 
+can be used to bind the event to any objects (if specified, 'EventType' parameter 
+has to be set to <font color="#924B72">#PB_All</font> as well). 
+
+</td></tr>
+<tr><td><i>EventType (optional)</i></td>
+<td> 
+The event type to bind the event to. For a full list of supported type, see <a href="eventtype.html">EventType()</a>. 
+<font color="#924B72">#PB_All</font> can be used to bind the event to any type. 
+
+</td></tr>
+</table>
+</blockquote><p><b>Return value</b></p><blockquote>
+None.
+
+
+</blockquote><p><b>Example</b></p><blockquote>
+
+<pre><font face="Courier New, Courier, mono"size="2">  <b><font color="#006666">Procedure</font></b> <font color="#006666">SizeWindowHandler</font>()
+    <b><font color="#006666">Debug</font></b> &quot;Size event on window #&quot; +<font color="#006666"> EventWindow</font>()
+    
+    <font color="#006666">; Resize the gadget to fit the new window dimensions</font>
+    <font color="#006666">;</font>
+<font color="#006666">    ResizeGadget</font>(0, <font color="#924B72">#PB_Ignore</font>, <font color="#924B72">#PB_Ignore</font>,<font color="#006666"> WindowWidth</font>(<font color="#006666">EventWindow</font>())-20,<font color="#006666"> WindowHeight</font>(<font color="#006666">EventWindow</font>())-20)
+  <b><font color="#006666">EndProcedure</font></b>
+    
+<font color="#006666">  OpenWindow</font>(0, 100, 100, 200, 200, &quot;Live resize test&quot;, <font color="#924B72">#PB_Window_SizeGadget</font> | <font color="#924B72">#PB_Window_SystemMenu</font>)
+<font color="#006666">  EditorGadget</font>(0, 10, 10, 180, 180)
+  
+<font color="#006666">  BindEvent</font>(<font color="#924B72">#PB_Event_SizeWindow</font>, @SizeWindowHandler())
+  
+  <b><font color="#006666">Repeat</font></b>
+    Event =<font color="#006666"> WaitWindowEvent</font>()
+  <b><font color="#006666">Until</font></b> Event = <font color="#924B72">#PB_Event_CloseWindow</font>
+</font></pre>
+
+</blockquote><p><b>See Also</b></p><blockquote>
+<a href="../gadget/bindgadgetevent.html">BindGadgetEvent()</a>, <a href="../menu/bindmenuevent.html">BindMenuEvent()</a>, <a href="unbindevent.html">UnbindEvent()</a>, <a href="windowevent.html">WindowEvent()</a>, <a href="waitwindowevent.html">WaitWindowEvent()</a> 
+
+</Blockquote><p><b>Supported OS </b><Blockquote>All</Blockquote></p><center><- <a href=addwindowtimer.html>AddWindowTimer()</a> - <a href=index.html>Window Index</a> - <a href=closewindow.html>CloseWindow()</a> -><br><br>
+
+</body></html>

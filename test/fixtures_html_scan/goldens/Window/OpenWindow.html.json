@@ -1,0 +1,44 @@
+{
+  "name": "OpenWindow",
+  "library": "Window",
+  "file": "Window/OpenWindow.html",
+  "syntax": [
+    "Result = OpenWindow(#Window, x, y, InnerWidth, InnerHeight, Title$ [, Flags [, ParentWindowID]])"
+  ],
+  "description": "Opens a new window according to the specified parameters. The new window becomes the active window,\nit's not needed to use SetActiveWindow() (unless the window is created as invisible).",
+  "parameters": [
+    {
+      "name": "#Window",
+      "description": "A number to identify the new window.\n#PB_Any can be used to auto-generate this number."
+    },
+    {
+      "name": "x, y",
+      "description": "The initial position of the window, in pixels (unless one of the center flags is used).\nIf 'x' or 'y' is set to #PB_Ignore, the OS will choose a position for the window."
+    },
+    {
+      "name": "InnerWidth, InnerHeight",
+      "description": "The required client area, in pixels (without borders and window decorations)."
+    },
+    {
+      "name": "Title$",
+      "description": "The title of the newly created window."
+    },
+    {
+      "name": "Flags (optional)",
+      "description": "Can be a combination of the following values:\n\n#PB_Window_SystemMenu : Enables the system menu on the window title bar (default).\n#PB_Window_MinimizeGadget: Adds the minimize gadget to the window title bar. #PB_Window_SystemMenu is automatically added.\n#PB_Window_MaximizeGadget: Adds the maximize gadget to the window title bar. #PB_Window_SystemMenu is automatically added.\n(MacOS only: #PB_Window_SizeGadget will be also automatically added).\n#PB_Window_SizeGadget : Adds the sizeable feature to a window.\n#PB_Window_Invisible : Creates the window but don't display.\n#PB_Window_TitleBar : Creates a window with a titlebar.\n#PB_Window_Tool : Creates a window with a smaller titlebar and no taskbar entry.\n#PB_Window_BorderLess : Creates a window without any borders.\n#PB_Window_ScreenCentered: Centers the window in the middle of the screen. x,y parameters are ignored.\n#PB_Window_WindowCentered: Centers the window in the middle of the parent window ('ParentWindowID' must be specified).\nx,y parameters are ignored.\n#PB_Window_Maximize : Opens the window maximized. (Note: on Linux, not all Windowmanagers support this)\n#PB_Window_Minimize : Opens the window minimized.\n#PB_Window_NoGadgets : Prevents the creation of a GadgetList. UseGadgetList() can be used to do this later.\n#PB_Window_NoActivate : Don't activate the window after opening."
+    },
+    {
+      "name": "ParentWindowID (optional)",
+      "description": "The WindowID the new window belongs to. 'ParentWindowID' value can be easily obtained with WindowID()."
+    }
+  ],
+  "returnValue": "Nonzero if the window was successfully created, zero otherwise. If #PB_Any was used\nfor the #Window parameter then the generated number is returned on success.",
+  "remarks": "All possible events in a window are handled with the WindowEvent() and WaitWindowEvent() functions.\n\nWindows only: for special situations callbacks are used, see description at SetWindowCallback(). On Windows,\nthe height and width of a window with a titlebar can't be less than around 100 pixels. To open smaller windows, use the\n\"#PB_Window_BorderLess\" flag.\n\nImportant: A window should not be opened in a thread, as there is some limitation on OS X and Linux.\nA debugger error will be raised.",
+  "example": "",
+  "os": [
+    "All"
+  ],
+  "seeAlso": [
+    "CloseWindow"
+  ]
+}

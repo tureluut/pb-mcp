@@ -1,0 +1,21 @@
+{
+  "name": "AudioCDLength",
+  "library": "AudioCD",
+  "file": "AudioCD/AudioCDLength.html",
+  "syntax": [
+    "Result = AudioCDLength()"
+  ],
+  "description": "Returns the total length of an entire audio CD.",
+  "parameters": [],
+  "returnValue": "Returns the length in seconds.",
+  "remarks": "",
+  "example": "",
+  "os": [
+    "Windows",
+    "MacOS"
+  ],
+  "seeAlso": [
+    "AudioCDTrackLength",
+    "UseAudioCD"
+  ]
+}

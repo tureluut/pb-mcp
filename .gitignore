@@ -1,0 +1,16 @@
+# Compiled PureBasic executables
+/pbmcp.exe
+/pbmcp
+/test/*.exe
+
+# Generated docs index (build-online-index.mjs output)
+/index-*.json
+
+# Scratch spike area
+/tmp/
+
+# Distribution bundle (regenerate with make-dist.cmd)
+/dist/
+
+# Generated test output and scratch data
+/test/out/

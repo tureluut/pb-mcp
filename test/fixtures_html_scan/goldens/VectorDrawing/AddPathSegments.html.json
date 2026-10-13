@@ -1,0 +1,28 @@
+{
+  "name": "AddPathSegments",
+  "library": "VectorDrawing",
+  "file": "VectorDrawing/AddPathSegments.html",
+  "syntax": [
+    "AddPathSegments(Segments$ [, Flags])"
+  ],
+  "description": "Add multiple segments described in string format to the vector drawing path. This command\ncan be used to reproduce the path commands recorded with the PathSegments() command.",
+  "parameters": [
+    {
+      "name": "Segments$",
+      "description": "Specifies the path commands to execute.\n\nThe segment description consists of one-letter commands followed by the appropriate number of coordinates for\nthe command. Values can be separated by whitespace or comma. Commands in uppercase interpret their arguments as\nabsolute coordinates, the equivalent command in lowercase interprets its arguments as relative the most recent\nadded path segment.\n\nM x y MovePathCursor()\nL x y AddPathLine()\nC x1 y1 x2 y2 x3 y3 AddPathCurve()\nZ ClosePath()\n\nIn addition to this simplified segments syntax, the command also accepts path descriptions in the format defined\nby the SVG Tiny standard which contains some\nadditional command letters."
+    },
+    {
+      "name": "Flags (optional)",
+      "description": "This can be a combination of the following values:\n\n#PB_Path_Default : No special behavior (default value)\n#PB_Path_Relative : Interpret all coordinates as relative to the current path cursor"
+    }
+  ],
+  "returnValue": "None.",
+  "remarks": "",
+  "example": "If OpenWindow(0, 0, 0, 400, 200, \"VectorDrawing\", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)\n    CanvasGadget(0, 0, 0, 400, 200)\n\n    If StartVectorDrawing(CanvasVectorOutput(0))\n      \n      AddPathSegments(\"M 40 20 L 120 20 L 120 60 L 200 60 L 200 100 L 280 100 L 280 140 L 360 140 L 360 180\")\n      VectorSourceColor(RGBA(255, 0, 0, 255))\n      StrokePath(10, #PB_Path_RoundCorner)\n    \n      StopVectorDrawing()\n    EndIf\n    \n    Repeat\n      Event = WaitWindowEvent()\n    Until Event = #PB_Event_CloseWindow\n  EndIf",
+  "os": [
+    "All"
+  ],
+  "seeAlso": [
+    "PathSegments"
+  ]
+}

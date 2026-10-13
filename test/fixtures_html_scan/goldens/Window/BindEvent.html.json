@@ -1,0 +1,44 @@
+{
+  "name": "BindEvent",
+  "library": "Window",
+  "file": "Window/BindEvent.html",
+  "syntax": [
+    "BindEvent(Event, @Callback() [, Window [, Object [, EventType]]])"
+  ],
+  "description": "Bind an event to a callback. It's an additional way to handle events in PureBasic,\nwhich works without problem with the regulars WindowEvent() / WaitWindowEvent()\ncommands. It also allows to have real-time event notifications as\nthe callback can be invoked as soon as the event occurs (useful for\nScrollBarGadget(), live window resize, etc.). An event can be unbound with UnbindEvent().",
+  "parameters": [
+    {
+      "name": "Event",
+      "description": "The event to bind. For a full list of events, see WindowEvent(). Custom\nevents are also supported, when using PostEvent()."
+    },
+    {
+      "name": "@Callback()",
+      "description": "The callback procedure to call when the event occurs. It has to be declared like this:\n\nProcedure EventHandler()\n; Code\nEndProcedure\n\nRegular functions like EventGadget(), EventWindow(), EventMenu(), EventType() and EventData() are\navailable within the callback to get more information about the event.\n\nNote: WindowEvent() and WaitWindowEvent() should never be called from inside the callback\nor the program can be locked or have wrong behavior."
+    },
+    {
+      "name": "Window (optional)",
+      "description": "The #Window number to bind the event to. The event will be dispatched only when occurring on this\nwindow. #PB_All can be specified to bind the event to all windows (if specified, 'Object' and\n'EventType' parameters have to be set to #PB_All as well)."
+    },
+    {
+      "name": "Object (optional)",
+      "description": "The object number to bind the event to. It can be a gadget,\nmenuitem or systray number. #PB_All\ncan be used to bind the event to any objects (if specified, 'EventType' parameter\nhas to be set to #PB_All as well)."
+    },
+    {
+      "name": "EventType (optional)",
+      "description": "The event type to bind the event to. For a full list of supported type, see EventType().\n#PB_All can be used to bind the event to any type."
+    }
+  ],
+  "returnValue": "None.",
+  "remarks": "",
+  "example": "Procedure SizeWindowHandler()\n    Debug \"Size event on window #\" + EventWindow()\n    \n    ; Resize the gadget to fit the new window dimensions\n    ;\n    ResizeGadget(0, #PB_Ignore, #PB_Ignore, WindowWidth(EventWindow())-20, WindowHeight(EventWindow())-20)\n  EndProcedure\n    \n  OpenWindow(0, 100, 100, 200, 200, \"Live resize test\", #PB_Window_SizeGadget | #PB_Window_SystemMenu)\n  EditorGadget(0, 10, 10, 180, 180)\n  \n  BindEvent(#PB_Event_SizeWindow, @SizeWindowHandler())\n  \n  Repeat\n    Event = WaitWindowEvent()\n  Until Event = #PB_Event_CloseWindow",
+  "os": [
+    "All"
+  ],
+  "seeAlso": [
+    "BindGadgetEvent",
+    "BindMenuEvent",
+    "UnbindEvent",
+    "WindowEvent",
+    "WaitWindowEvent"
+  ]
+}

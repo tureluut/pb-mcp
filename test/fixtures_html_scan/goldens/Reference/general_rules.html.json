@@ -1,0 +1,13 @@
+{
+  "name": "General Rules Alias Fixture",
+  "library": "Reference",
+  "file": "Reference/general_rules.html",
+  "syntax": [],
+  "description": "",
+  "parameters": [],
+  "returnValue": "Alias marker fixture content.",
+  "remarks": "",
+  "example": "",
+  "os": [],
+  "seeAlso": []
+}
