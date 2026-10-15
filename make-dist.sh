@@ -10,7 +10,7 @@
 #   dist/index.json          current docs index (swap for another index-*.json)
 #   dist/README.md
 #   dist/INSTALL.md
-#   dist/skills/purebasic/SKILL.md
+#   dist/skills/purebasic/        complete skill (SKILL.md + references/)
 #
 # Compiles straight into dist/ (via PBMCP_OUT) so a server running from the
 # repo-root binary does not lock the build target. dist/ is gitignored;
@@ -36,7 +36,8 @@ echo "make-dist: copying docs + skill"
 cp README.md dist/ || fail
 cp INSTALL.md dist/ || fail
 [ -f src/pbdocs-index.json ] && cp src/pbdocs-index.json dist/index.json
-cp skills/purebasic/SKILL.md dist/skills/purebasic/ || fail
+echo "make-dist: copying complete skill tree (SKILL.md + references/)"
+cp -R skills/purebasic/. dist/skills/purebasic/ || fail
 
 # smoke: the artifact must launch (also warms it past first-run security
 # scanning - a never-executed fresh binary can fail to start in time under

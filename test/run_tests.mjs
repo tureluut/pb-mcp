@@ -22,6 +22,9 @@
 //       [B] invalid JSON, [C] embedded placeholder (0 commands), [D]
 //       no-index server stays fully alive
 //   [9] native HTML scanner: test/fixtures_html_scan/pages vs goldens
+//   [10] companion skill integrity: SKILL.md frontmatter + routing, the
+//        best-practices reference structure (BP01-BP30, nine topics), and
+//        local markdown link resolution
 //
 // Artifacts land in test/out/. Run:  node test/run_tests.mjs
 // Set PBMCP_EXE to test a build elsewhere - the repo-root exe is locked
@@ -830,6 +833,62 @@ console.log("\n[9] native scanner: fixtures vs goldens");
   }
   check("scanner fixtures all exercised", scanned > 0, `scanned ${scanned}`);
   console.log(`     ${scanned} fixture pages compared against goldens`);
+}
+
+// ===========================================================================
+console.log("\n[10] companion skill integrity");
+// ===========================================================================
+{
+  const skillDir = join(root, "skills", "purebasic");
+  const refDir = join(skillDir, "references");
+  const skillFile = join(skillDir, "SKILL.md");
+  const bpFile = join(refDir, "best-practices.md");
+  const skillText = existsSync(skillFile) ? readFileSync(skillFile, "utf8") : "";
+
+  const fm = skillText.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  check("SKILL.md has frontmatter block", !!fm, "no leading --- block");
+  check("SKILL.md frontmatter has name and description",
+    !!fm && /^name:\s*\S/m.test(fm[1]) && /^description:\s*\S/m.test(fm[1]));
+
+  check("SKILL.md routes to the best-practices reference",
+    /references\/best-practices\.md/.test(skillText));
+  check("references/best-practices.md exists", existsSync(bpFile));
+  const bpText = existsSync(bpFile) ? readFileSync(bpFile, "utf8") : "";
+
+  // Exactly one heading per BP01-BP30; no duplicated or extra BP identifiers.
+  const counts = {};
+  for (const m of bpText.matchAll(/^#{1,6}\s+BP(\d{2})\b.*$/gm)) counts[m[1]] = (counts[m[1]] || 0) + 1;
+  const expectedIds = Array.from({ length: 30 }, (_, i) => String(i + 1).padStart(2, "0"));
+  check("BP01-BP30 each occur exactly once, no extra BP ids",
+    expectedIds.every((id) => counts[id] === 1) && Object.keys(counts).length === 30,
+    JSON.stringify(counts));
+
+  const topics = ["General", "Modules", "Strings and files", "Console", "Memory",
+    "Threads", "Database", "GUI", "Verification"];
+  const headings = [...bpText.matchAll(/^#{1,6}\s+(.+?)\s*$/gm)].map((m) => m[1]);
+  check("nine topic headings present", topics.every((t) => headings.includes(t)),
+    JSON.stringify(headings));
+
+  // Local markdown links in SKILL.md and references/*.md must resolve to
+  // files relative to their containing file. External URLs and pure fragment
+  // links are ignored; only target existence is checked, not prose semantics.
+  const mdFiles = [skillFile,
+    ...readdirSync(refDir).filter((f) => f.endsWith(".md")).map((f) => join(refDir, f))];
+  const links = [];
+  for (const file of mdFiles) {
+    if (!existsSync(file)) continue;
+    for (const m of readFileSync(file, "utf8").matchAll(/\]\(([^()\s]+)\)/g)) {
+      const target = m[1];
+      if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue;   // external scheme (https:, mailto:, ...)
+      const pathPart = target.split("#")[0];
+      if (!pathPart) continue;                             // pure fragment link
+      links.push({ from: file, path: pathPart });
+    }
+  }
+  check("local markdown links were collected", links.length > 0, `found ${links.length}`);
+  const broken = links.filter((l) => !existsSync(join(dirname(l.from), l.path)));
+  check("all local markdown links resolve", broken.length === 0,
+    broken.map((b) => `${relative(root, b.from)} -> ${b.path}`).join("; "));
 }
 
 // ---------------------------------------------------------------------------

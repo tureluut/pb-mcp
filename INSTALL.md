@@ -81,8 +81,9 @@ only the docs tools answer with a build hint.
 
 The server tools work without it, but the skill is what stops an agent from
 hallucinating Visual Basic syntax into `.pb` files and teaches correct tool
-use (`pb_check` after every edit, console-only `pb_run`, absolute include
-paths).
+use (`pb_check` after each coherent edit batch, console-only `pb_run`,
+portable relative includes). Install the complete folder — `SKILL.md` plus
+`references/` — not just `SKILL.md`; the entry point links its references.
 
 pi — copy into the agent skills directory:
 

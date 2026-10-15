@@ -2,7 +2,7 @@
 
 ## Confirm the toolchain
 
-- Use `pb_version` when compiler or documentation-version compatibility matters. Confirm that both match the project's target (this skill targets PureBasic 6.40).
+- PureBasic 6.40 is this skill's baseline. Use `pb_version` when compiler or documentation-version compatibility matters, and confirm both against the project's actual target before applying guidance on later versions.
 - Use `pb_docs_search` to find command names. Use `pb_command` to check exact syntax, parameters, return values, flags, and supported OS. Do not infer names or flags from another language or an older PB version.
 - For reference pages, `pb_command` may return the full-text URL rather than the page contents. Fetch that official URL when details are needed; do not inspect MCP server internals.
 
@@ -12,6 +12,7 @@
 - `pb_run` compiles and executes a console program. Use it only for bounded, noninteractive tests. Do not run a GUI, screen/keyboard loop, or a program waiting for user input; it may block until timeout. Record observed output and exit status.
 - The MCP temporary-copy workflow may not resolve a relative `XIncludeFile` next to the original source. This is a tool limitation, not a reason to replace portable project includes with machine-specific absolute paths. If an include check fails, report the limitation; verify through the project-native compiler/build workflow when available, or ask the user if that is required and unavailable.
 - Prefer MCP over invoking `pbcompiler` through shells where argument translation may alter compiler switches. Use another compiler route only when MCP cannot verify the project and the alternative is safe and available.
+- The MCP `pb_check`/`pb_run` interface exposes no thread-safe compiler option. Code that uses threads must be verified with the project's native thread-safe build (`/THREAD` on Windows, `--thread` on Linux); a plain MCP execution does not verify thread-safe behavior. MCP checks remain useful for syntax and non-threaded logic.
 
 ## Failures and unavailable tools
 

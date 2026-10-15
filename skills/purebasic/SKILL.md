@@ -23,6 +23,10 @@ read [`references/tooling.md`](references/tooling.md) when relevant.
 The tested scope, array-read, and parsing cases are recorded in
 [`references/verification.md`](references/verification.md); other guidance is
 not a blanket claim of compiler-tested coverage.
+For module organization, console I/O, files and encoding, memory management,
+threads, databases, GUI lifetimes, and release verification, read the matching
+section of [`references/best-practices.md`](references/best-practices.md)
+before writing code — load only the sections the task needs.
 
 ## PureBasic is not Visual Basic
 
@@ -65,7 +69,9 @@ End
 ## Declarations and types
 
 - Put `EnableExplicit` at the top of every file; then declare before use:
-  `Define count.i = 0`, `Define path.s`, `Define scale.f = 1.5`.
+  `Define count.i = 0`, `Define path.s`, `Define scale.f = 1.5`. A file-level
+  `EnableExplicit` does **not** extend into `Module` scopes — enable it in
+  each module too when wanted.
 - Without `EnableExplicit`, any name compiles as an undeclared integer — bugs
   hide. Keep it on.
 - Default type is `.i` (integer, pointer-sized: 8 bytes on 64-bit). Use `.i`
@@ -81,8 +87,10 @@ End
 - Scope: main-level `Define` scalars and ordinary arrays, lists, and maps are
   not automatically accessible inside procedures. Declare shared state with
   `Global count.i`, `Global Dim grid.i(9)`, or `Global NewList queue.i()`
-  before the procedure, or use `Shared count, grid()` inside it. Modules have
-  separate scope; consult their reference when crossing module boundaries.
+  before the procedure, or use `Shared count, grid()` inside it. Modules
+  isolate names, not threads or ownership, and do not inherit a file-level
+  `EnableExplicit` — see the Modules section of the best-practices reference
+  for API boundaries, declaration order, and init/shutdown.
 - `Read` can fill a visible scalar or array element. In a procedure,
   `Read.i grid(x)` works when `grid()` is global or shared. Match the read
   type to the stored data and ensure the data position is valid.
@@ -107,10 +115,10 @@ End
   event accidentally: each call removes another event from the queue.
   Multi-window applications must check `EventWindow()` before deciding to quit.
   Give the wait a timeout only when needed; prefer window timers for periodic work.
-- Gadget events: either handle `#PB_Event_Gadget` + `EventGadget()` in the
-  loop, or bind `BindGadgetEvent(#Gadget, @Callback())`. Do not mix callbacks
-  with `WaitWindowEvent()` inside a callback — never call
-  `WindowEvent()`/`WaitWindowEvent()` from a callback.
+- Gadget events: handle `#PB_Event_Gadget` + `EventGadget()` in the loop,
+  bind `BindGadgetEvent(#Gadget, @Callback())`, or both — bound handlers and
+  loop dispatch coexist. Never pump events from inside a bound callback: do
+  not call `WindowEvent()`/`WaitWindowEvent()` there.
 - Timers: `AddWindowTimer(#Window, Timer, TimeoutMs)` fires `#PB_Event_Timer`;
   identify via `EventTimer()`.
 - Prefer `#PB_Any` for auto-numbered windows/gadgets only when you store the
@@ -135,8 +143,10 @@ End
 
 - `CompilerSelect #PB_Compiler_OS … CompilerCase #PB_OS_Windows …
   CompilerEndSelect`; guards via `CompilerIf #PB_Compiler_Debugger …
-  CompilerEndIf`. Blocks are removed at compile time — keep both branches
-  syntactically valid. Note: `CompilerEndSelect`, not `EndCompilerSelect`.
+  CompilerEndIf`. Inactive branches are removed and not validated by the
+  current build — one successful compile proves only its selected branches,
+  so build each supported OS/architecture/backend target. Note:
+  `CompilerEndSelect`, not `EndCompilerSelect`.
 
 ## Resource cleanup pairs (open ↔ free)
 
@@ -156,9 +166,17 @@ End
 Guard reuse with `IsFile()` / `IsImage()` / `IsSound()` / `IsWindow()`.
 Draw with `StartDrawing(...Output())` ↔ `StopDrawing()`.
 
+Release a resource when its ownership ends — closing a secondary window is
+not application shutdown, and scattering `End` calls is not a cleanup
+strategy. PureBasic frees many resources automatically at process exit;
+explicit cleanup matters for lifetimes you manage (files, threads,
+connections).
+
 ## Naming
 
-- Procedures `PascalCase`, variables `camelCase`, constants `#ALL_CAPS`.
+- Recommended defaults: procedures `PascalCase`, variables `camelCase`,
+  constants `#ALL_CAPS` — follow the target project's existing style when it
+  differs.
 - Path/file splitting is `…Part()`-suffixed: `GetExtensionPart("a.pb")` →
   `"pb"` (no dot), plus `GetFilePart()`, `GetPathPart()`. `GetExtension()`
   does not exist — search instead of guessing names.
@@ -168,8 +186,10 @@ Draw with `StartDrawing(...Output())` ↔ `StopDrawing()`.
 
 ## Console programs vs GUI
 
-- Console: `OpenConsole()`, `PrintN(text)`, `line.s = Input()`,
-  `CloseConsole()`. Console programs are safe to run via `pb_run`.
+- Console: check `OpenConsole()`'s result before printing, then
+  `PrintN(text)`, `line.s = Input()`, `CloseConsole()`. `Input()` is
+  legitimate for interactive tools and stdin pipelines; a Windows GUI-format
+  executable can still open a console.
 - **Do not run GUI, screen/keyboard, or interactive console programs via
   `pb_run`** — they can wait for input until the timeout kills them. Compile
   with `pb_check`; use safe automated noninteractive tests for logic and
@@ -186,4 +206,8 @@ Draw with `StartDrawing(...Output())` ↔ `StopDrawing()`.
   includes to machine-specific absolute paths.
 - Use `pb_run` only for bounded, noninteractive console tests. Record the
   actual output and exit status, not just the intended result.
+- Run development and test builds under the debugger: it reports invalid
+  memory access and array/string misuse that release builds may silently
+  corrupt. Debugger diagnostics do not replace release-mode input validation
+  and error returns.
 - Never label an unavailable or failed check as verified.

@@ -115,18 +115,20 @@ launches, and assembles the self-contained bundle:
     dist/index.json                   current docs index (swap for another index-*.json)
     dist/README.md
     dist/INSTALL.md                   quickstart for binary consumers
-    dist/skills/purebasic/SKILL.md    companion agent skill
+    dist/skills/purebasic/            companion agent skill (SKILL.md + references/)
 
 `dist/` is gitignored; regenerate after every release-worthy change.
 
 ## Companion skill
 
-The repo ships the agent skill this server was built with:
-`skills/purebasic/SKILL.md`. The tools do the work; the skill teaches the
+The repo ships the agent skill this server was built with: the complete
+`skills/purebasic/` folder — `SKILL.md` plus its `references/` (tooling,
+verification, best-practices). The tools do the work; the skill teaches the
 agent PureBasic itself — no VB/FreeBASIC syntax, event-loop rules,
-resource-cleanup pairs, and correct tool use (`pb_check` after every edit,
-console-only `pb_run`, absolute include paths). Not required to run the
-server, but strongly recommended — copy it into the client's skills directory
+resource-cleanup pairs, and correct tool use (`pb_check` after each coherent
+edit batch, console-only `pb_run`, portable relative includes — see the
+skill's tooling reference). Not required to run the server, but strongly
+recommended — copy the whole folder into the client's skills directory
 (see `INSTALL.md`, step 4).
 
 ## Client configuration

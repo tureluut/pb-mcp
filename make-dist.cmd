@@ -11,7 +11,7 @@ rem   dist\pbmcp.exe
 rem   dist\index.json         current docs index (swap for another index-*.json)
 rem   dist\README.md
 rem   dist\INSTALL.md
-rem   dist\skills\purebasic\SKILL.md
+rem   dist\skills\purebasic\         complete skill (SKILL.md + references\)
 rem
 rem Compiles straight into dist\ (via PBMCP_OUT) so a server running from the
 rem repo-root exe does not lock the build target. dist\ is gitignored;
@@ -35,7 +35,8 @@ echo make-dist: copying docs + skill
 copy /y "README.md"                 "dist\" >nul || goto :fail
 copy /y "INSTALL.md"                "dist\" >nul || goto :fail
 if exist "src\pbdocs-index.json" copy /y "src\pbdocs-index.json" "dist\index.json" >nul
-copy /y "skills\purebasic\SKILL.md" "dist\skills\purebasic\" >nul || goto :fail
+echo make-dist: copying complete skill tree (SKILL.md + references\)
+xcopy /e /i /y "skills\purebasic" "dist\skills\purebasic\" >nul || goto :fail
 
 rem smoke: the artifact must launch (also warms it past first-run AV
 rem scanning - a never-executed fresh exe can fail to start in time under

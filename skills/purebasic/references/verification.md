@@ -8,3 +8,7 @@ These targeted checks were run with the PureBasic MCP 0.3.1 server and its 6.40 
 - MCP `pb_check` on a main file using a relative `XIncludeFile "sibling.pbi"` failed to locate a sibling beside the original file because the temporary copy is compiled from a different directory. Treat this as an MCP limitation, not a language restriction.
 
 Re-run checks when changing the supported compiler version or when relying on behavior beyond these examples.
+
+[best-practices.md](best-practices.md) is documentation-reviewed guidance
+(official docs, with forum corroboration for pitfalls), not blanket
+compiler/runtime-tested coverage — only the list above was executed.
