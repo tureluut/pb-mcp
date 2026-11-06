@@ -8,10 +8,33 @@ Notable changes to pbmcp. The server version lives in `src/jsonrpc.pb`
 
 ### Added
 
-- **Streamable HTTP transport** — `pbmcp http [--port N]` serves stateless
-  Streamable HTTP on the IPv4 loopback only (default port 6817). HTTP mode
-  negotiates MCP protocol `2025-11-25`; stdio keeps `2025-03-26`. New
-  `src/http.pb`; unknown HTTP options are rejected with an actionable error.
+- **Streamable HTTP transport** — `pbmcp http [--port N] --auth-file PATH`
+  serves stateless Streamable HTTP on the IPv4 loopback only (default port
+  6817). HTTP mode negotiates MCP protocol `2025-11-25`; stdio keeps
+  `2025-03-26`. New `src/http.pb`; unknown HTTP options are rejected with an
+  actionable error.
+- **Mandatory bearer authentication** — every `http` invocation requires
+  `--auth-file` with a credential verifier file
+  (`{"clients":[{"id":...,"tokenSha256":...}]}`, 1–32 clients; SHA-256
+  digests only, never plaintext tokens); no anonymous mode exists. Each
+  request must carry exactly one `Authorization: Bearer <token>`:
+  missing/invalid tokens get an empty 401 with
+  `WWW-Authenticate: Bearer realm="pbmcp"`, duplicate or combined headers
+  get 400. Preconfigured bearer auth, not MCP OAuth/authorization
+  discovery. INSTALL.md documents token provisioning and a canonical Caddy
+  2.10+ HTTPS gateway recipe for internet deployment (a VPN/SSH tunnel
+  remains the simpler alternative).
+- **HTTP tool profile** — HTTP by default exposes only `pb_docs_search` and
+  `pb_command`; `pb_check`, `pb_run` and `pb_version` are hidden from
+  `tools/list` and direct calls return the MCP `isError` unavailable-tool
+  result instead of a transport error. `--allow-compiler-tools` opts the
+  whole process in to all five tools — for trusted clients on an isolated
+  host, not a sandbox.
+- **Admission control and audit** — per-client token bucket (burst 10, then
+  1 request/second) answers exhausted clients with an empty 429 carrying an
+  integer `Retry-After`; redacted JSON-line audit events (validated client
+  ID, method/tool name, status, elapsed time) go to stderr — never tokens,
+  raw headers, paths or tool arguments.
 - **Project staging for `pb_check` and `pb_run`** — both tools accept an
   optional `projectRoot` (absolute, or relative to the server's startup
   directory). The complete tree (default: the entry file's parent) is copied
