@@ -556,62 +556,437 @@ Procedure RunProcessCapture(Exe$, Params$, WorkingDir$, TimeoutMs.i, *r.RunResT)
 EndProcedure
 
 ; ---------------------------------------------------------------------------
-; temp-dir copy with guaranteed cleanup
+; bounded project-tree staging with owned cleanup
 ; ---------------------------------------------------------------------------
+#PROJECT_MAX_ENTRIES = 10000
+#PROJECT_MAX_BYTES = 268435456
+#PROJECT_MAX_DEPTH = 64
+#PROJECT_STAGE_TIMEOUT_MS = 15000
+#PROJECT_COPY_CHUNK = 65536
+#PROJECT_FILE_ATTRIBUTE_REPARSE_POINT = $400
+#PROJECT_FILE_ATTRIBUTE_DIRECTORY = $10
+
+CompilerIf #PB_Compiler_OS = #PB_OS_Linux
+  ; statx is used with AT_SYMLINK_NOFOLLOW so links and special files are
+  ; classified without opening/following them. The statx wire layout is fixed.
+  #PROJECT_AT_FDCWD = -100
+  #PROJECT_AT_SYMLINK_NOFOLLOW = $100
+  #PROJECT_STATX_TYPE = 1
+  ImportC ""
+    ProjectStatx(dirfd.i, *pathname, flags.i, mask.i, *statxbuf) As "statx"
+  EndImport
+CompilerEndIf
+
 Structure TempCopyT
-  dir.s
-  file.s
+  dir.s                  ; the freshly-created, exclusively-owned workspace
+  root.s                 ; staged project root
+  file.s                 ; staged entry source file
+  sourceRoot.s
+  sourceFile.s
+  error.s
   ok.i
 EndStructure
 
-; makeTempCopy: fresh temp-dir/pbmcp-<uniq> holding a copy under the same
-; basename. The caller MUST call CleanupTempDir even on error paths.
-Procedure MakeTempCopy(SourceFile$, *t.TempCopyT)
+Structure ProjectStageT
+  error.s
+  entries.i
+  bytes.q
+  started.i
+EndStructure
+
+Declare CleanupTempDir(Dir$)
+Declare.i ProjectVisitDirectory(Source$, Destination$, Depth.i, *stage.ProjectStageT, CopyTree.i)
+
+Procedure.s ProjectNormalizedPath(Path$)
+  Protected normalized$ = ResolvePath(Path$)
+  While Len(normalized$) > 1 And Right(normalized$, 1) = #PathSep$
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+      If Len(normalized$) = 3 And Mid(normalized$, 2, 1) = ":" : Break : EndIf
+    CompilerEndIf
+    normalized$ = Left(normalized$, Len(normalized$) - 1)
+  Wend
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    normalized$ = LCase(normalized$)
+  CompilerEndIf
+  ProcedureReturn normalized$
+EndProcedure
+
+Procedure.i ProjectPathWithin(Path$, Root$)
+  Protected pathNorm$ = ProjectNormalizedPath(Path$)
+  Protected rootNorm$ = ProjectNormalizedPath(Root$)
+  If pathNorm$ = rootNorm$ : ProcedureReturn #True : EndIf
+  If Right(rootNorm$, 1) <> #PathSep$ : rootNorm$ + #PathSep$ : EndIf
+  ProcedureReturn Bool(Left(pathNorm$, Len(rootNorm$)) = rootNorm$)
+EndProcedure
+
+Procedure.i ProjectIsFilesystemRoot(Path$)
+  Protected normalized$ = ProjectNormalizedPath(Path$)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Linux
+    ProcedureReturn Bool(normalized$ = "/")
+  CompilerElse
+    If Len(normalized$) = 3 And Mid(normalized$, 2, 1) = ":" And Right(normalized$, 1) = "\"
+      ProcedureReturn #True
+    EndIf
+    ; A UNC share root has only the server and share components.
+    If Left(normalized$, 2) = "\\" And CountString(normalized$, "\") = 3
+      ProcedureReturn #True
+    EndIf
+  CompilerEndIf
+  ProcedureReturn #False
+EndProcedure
+
+; Returns: -1 unavailable, 0 regular file, 1 directory, 2 unsupported special,
+; 3 symbolic link or Windows reparse point.
+Procedure.i ProjectNativeType(Path$, *stage.ProjectStageT)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    Protected attributes.i = GetFileAttributes_(@Path$)
+    If attributes = -1 Or (attributes & $FFFFFFFF) = $FFFFFFFF
+      *stage\error = "cannot read native filesystem metadata for " + Path$
+      ProcedureReturn -1
+    EndIf
+    If attributes & #PROJECT_FILE_ATTRIBUTE_REPARSE_POINT
+      ProcedureReturn 3
+    EndIf
+    If attributes & #PROJECT_FILE_ATTRIBUTE_DIRECTORY
+      ProcedureReturn 1
+    EndIf
+    ProcedureReturn 0
+  CompilerElse
+    Protected pathBytes.i = StringByteLength(Path$, #PB_UTF8) + 1
+    Protected *nativePath = AllocateMemory(pathBytes)
+    Protected *metadata = AllocateMemory(256)
+    If *nativePath = 0 Or *metadata = 0
+      If *nativePath : FreeMemory(*nativePath) : EndIf
+      If *metadata : FreeMemory(*metadata) : EndIf
+      *stage\error = "out of memory checking filesystem entry " + Path$
+      ProcedureReturn -1
+    EndIf
+    PokeS(*nativePath, Path$, -1, #PB_UTF8)
+    If ProjectStatx(#PROJECT_AT_FDCWD, *nativePath, #PROJECT_AT_SYMLINK_NOFOLLOW, #PROJECT_STATX_TYPE, *metadata) <> 0
+      FreeMemory(*nativePath)
+      FreeMemory(*metadata)
+      *stage\error = "cannot read no-follow filesystem metadata for " + Path$
+      ProcedureReturn -1
+    EndIf
+    Protected mode.i = PeekL(*metadata + 28) & $FFFF
+    FreeMemory(*nativePath)
+    FreeMemory(*metadata)
+    Select mode & $F000
+      Case $8000 : ProcedureReturn 0 ; regular file
+      Case $4000 : ProcedureReturn 1 ; directory
+      Case $A000 : ProcedureReturn 3 ; symbolic link
+      Default    : ProcedureReturn 2 ; FIFO/socket/device/other special entry
+    EndSelect
+  CompilerEndIf
+EndProcedure
+
+; Walk every existing component using no-follow metadata. The final component
+; may be a regular entry; every parent must be a directory.
+Procedure.i ProjectCheckPathComponents(InputPath$, *stage.ProjectStageT)
+  Protected path$ = ResolvePath(InputPath$)
+  Protected current$ = "", start.i = 1, i.i, component$, kind.i
+  CompilerIf #PB_Compiler_OS = #PB_OS_Linux
+    current$ = "/" : start = 2
+  CompilerElse
+    path$ = ReplaceString(path$, "/", "\")
+    If Len(path$) >= 3 And Mid(path$, 2, 1) = ":"
+      current$ = Left(path$, 3) : start = 4
+    ElseIf Left(path$, 2) = "\\"
+      Protected serverEnd.i = FindString(path$, "\", 3)
+      Protected shareEnd.i
+      If serverEnd = 0
+        *stage\error = "unsupported or incomplete UNC path: " + path$
+        ProcedureReturn #False
+      EndIf
+      shareEnd = FindString(path$, "\", serverEnd + 1)
+      If shareEnd = 0
+        current$ = path$ : start = Len(path$) + 1
+      Else
+        current$ = Left(path$, shareEnd - 1) : start = shareEnd + 1
+      EndIf
+    Else
+      *stage\error = "path is not an absolute local or UNC path: " + path$
+      ProcedureReturn #False
+    EndIf
+  CompilerEndIf
+
+  If Len(current$) > 0 And Len(current$) < Len(path$)
+    kind = ProjectNativeType(current$, *stage)
+    If kind < 0 : ProcedureReturn #False : EndIf
+    If kind = 3
+      *stage\error = "symbolic links/reparse points are not allowed in project paths: " + current$
+      ProcedureReturn #False
+    ElseIf kind <> 1
+      *stage\error = "a project path component is not a directory: " + current$
+      ProcedureReturn #False
+    EndIf
+  EndIf
+
+  For i = start To Len(path$) + 1
+    If i > Len(path$) Or Mid(path$, i, 1) = #PathSep$
+      component$ = Mid(path$, start, i - start)
+      If component$ <> ""
+        current$ = PathJoin(current$, component$)
+        kind = ProjectNativeType(current$, *stage)
+        If kind < 0 : ProcedureReturn #False : EndIf
+        If kind = 3
+          *stage\error = "symbolic links/reparse points are not allowed in project paths: " + current$
+          ProcedureReturn #False
+        ElseIf i <= Len(path$) And kind <> 1
+          *stage\error = "a parent path component is not a directory: " + current$
+          ProcedureReturn #False
+        EndIf
+      EndIf
+      start = i + 1
+    EndIf
+  Next
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i ProjectTimeAvailable(*stage.ProjectStageT, Path$)
+  If ElapsedMilliseconds() - *stage\started > #PROJECT_STAGE_TIMEOUT_MS
+    *stage\error = "staging exceeded the 15-second time limit at " + Path$ + "; reduce the selected projectRoot"
+    ProcedureReturn #False
+  EndIf
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i ProjectCopyRegularFile(Source$, Destination$, ExpectedSize.q, *stage.ProjectStageT)
+  Protected kind.i = ProjectNativeType(Source$, *stage)
+  If kind <> 0
+    If *stage\error = "" : *stage\error = "entry changed or is not a regular file: " + Source$ : EndIf
+    ProcedureReturn #False
+  EndIf
+  Protected input.i = ReadFile(#PB_Any, Source$)
+  If input = 0
+    *stage\error = "cannot open project file for reading: " + Source$
+    ProcedureReturn #False
+  EndIf
+  Protected output.i = CreateFile(#PB_Any, Destination$)
+  If output = 0
+    CloseFile(input)
+    *stage\error = "cannot create staged file: " + Destination$
+    ProcedureReturn #False
+  EndIf
+  Protected *buffer = AllocateMemory(#PROJECT_COPY_CHUNK)
+  If *buffer = 0
+    CloseFile(input) : CloseFile(output)
+    *stage\error = "out of memory copying project file: " + Source$
+    ProcedureReturn #False
+  EndIf
+  Protected copied.q = 0, amount.i
+  While Not Eof(input)
+    If Not ProjectTimeAvailable(*stage, Source$) : Break : EndIf
+    amount = ReadData(input, *buffer, #PROJECT_COPY_CHUNK)
+    If amount <= 0
+      *stage\error = "read failed while copying project file: " + Source$
+      Break
+    EndIf
+    If WriteData(output, *buffer, amount) <> amount
+      *stage\error = "write failed while staging project file: " + Destination$
+      Break
+    EndIf
+    copied + amount
+    *stage\bytes + amount
+    If *stage\bytes > #PROJECT_MAX_BYTES
+      *stage\error = "project exceeds the 256 MiB regular-file limit while copying " + Source$
+      Break
+    EndIf
+  Wend
+  FreeMemory(*buffer)
+  CloseFile(input) : CloseFile(output)
+  If *stage\error = "" And (copied <> ExpectedSize Or FileSize(Source$) <> ExpectedSize)
+    *stage\error = "source file changed while staging: " + Source$
+  EndIf
+  If *stage\error <> "" : ProcedureReturn #False : EndIf
+  ProcedureReturn #True
+EndProcedure
+
+; CopyTree=#False performs the complete preflight. The same bounds and
+; metadata checks run again during the copy pass to detect changes.
+Procedure.i ProjectVisitDirectory(Source$, Destination$, Depth.i, *stage.ProjectStageT, CopyTree.i)
+  If Depth > #PROJECT_MAX_DEPTH
+    *stage\error = "project nesting exceeds the 64-directory depth limit at " + Source$
+    ProcedureReturn #False
+  EndIf
+  If Not ProjectTimeAvailable(*stage, Source$) : ProcedureReturn #False : EndIf
+  If CopyTree And Not CreateDirectory(Destination$)
+    *stage\error = "cannot create staged directory: " + Destination$
+    ProcedureReturn #False
+  EndIf
+  Protected directory.i = ExamineDirectory(#PB_Any, Source$, "")
+  If directory = 0
+    *stage\error = "cannot enumerate project directory: " + Source$
+    ProcedureReturn #False
+  EndIf
+  Protected name$, sourceEntry$, destinationEntry$, kind.i, size.q
+  While NextDirectoryEntry(directory)
+    name$ = DirectoryEntryName(directory)
+    If name$ = "." Or name$ = ".." : Continue : EndIf
+    If Not ProjectTimeAvailable(*stage, Source$) : Break : EndIf
+    *stage\entries + 1
+    If *stage\entries > #PROJECT_MAX_ENTRIES
+      *stage\error = "project exceeds the 10,000 visited-entry limit at " + Source$ + "; narrow projectRoot"
+      Break
+    EndIf
+    sourceEntry$ = PathJoin(Source$, name$)
+    If CopyTree : destinationEntry$ = PathJoin(Destination$, name$) : EndIf
+    kind = ProjectNativeType(sourceEntry$, *stage)
+    If kind < 0 : Break : EndIf
+    If kind = 3
+      *stage\error = "symbolic link/reparse point is not allowed in a project tree: " + sourceEntry$
+      Break
+    ElseIf kind = 2
+      *stage\error = "unsupported special filesystem entry in project tree: " + sourceEntry$
+      Break
+    EndIf
+    If kind = 1
+      If LCase(name$) = ".git" Or LCase(name$) = ".hg" Or LCase(name$) = ".svn"
+        Continue
+      EndIf
+      If CopyTree And Not ProjectTimeAvailable(*stage, sourceEntry$) : Break : EndIf
+      If Not ProjectVisitDirectory(sourceEntry$, destinationEntry$, Depth + 1, *stage, CopyTree)
+        Break
+      EndIf
+    Else
+      size = FileSize(sourceEntry$)
+      If size < 0
+        *stage\error = "cannot determine regular-file size: " + sourceEntry$
+        Break
+      EndIf
+      If *stage\bytes > #PROJECT_MAX_BYTES - size
+        *stage\error = "project exceeds the 256 MiB regular-file limit at " + sourceEntry$ + "; narrow projectRoot"
+        Break
+      EndIf
+      If CopyTree
+        If Not ProjectCopyRegularFile(sourceEntry$, destinationEntry$, size, *stage) : Break : EndIf
+      Else
+        *stage\bytes + size
+      EndIf
+    EndIf
+  Wend
+  FinishDirectory(directory)
+  ProcedureReturn Bool(*stage\error = "")
+EndProcedure
+
+; Resolve/validate the selected entry and stage the complete tree beneath a
+; newly-owned pbmcp-* workspace. *t\dir is recorded immediately on creation.
+Procedure MakeTempCopy(SourceFile$, ProjectRoot$, *t.TempCopyT)
   *t\ok = #False
-  *t\dir = "" : *t\file = ""
+  *t\dir = "" : *t\root = "" : *t\file = "" : *t\error = ""
+  *t\sourceFile = ResolvePath(SourceFile$)
+  If ProjectRoot$ = ""
+    *t\sourceRoot = GetPathPart(*t\sourceFile)
+  Else
+    *t\sourceRoot = ResolvePath(ProjectRoot$)
+  EndIf
+  *t\sourceRoot = ProjectNormalizedPath(*t\sourceRoot)
+  *t\sourceFile = ProjectNormalizedPath(*t\sourceFile)
+
+  Protected stage.ProjectStageT
+  If ProjectIsFilesystemRoot(*t\sourceRoot)
+    *t\error = "projectRoot must not be a filesystem root: " + *t\sourceRoot
+    ProcedureReturn
+  EndIf
+  If FileSize(*t\sourceRoot) <> -2
+    *t\error = "projectRoot is missing or is not a directory: " + *t\sourceRoot
+    ProcedureReturn
+  EndIf
+  If Not ProjectPathWithin(*t\sourceFile, *t\sourceRoot) Or *t\sourceFile = *t\sourceRoot
+    *t\error = "entry file is outside projectRoot: " + *t\sourceFile + "; choose an encompassing projectRoot"
+    ProcedureReturn
+  EndIf
+  If Not ProjectCheckPathComponents(*t\sourceRoot, @stage) Or Not ProjectCheckPathComponents(*t\sourceFile, @stage)
+    *t\error = "project staging failed: " + stage\error
+    ProcedureReturn
+  EndIf
+  Protected sourceType.i = ProjectNativeType(*t\sourceFile, @stage)
+  If sourceType <> 0
+    If stage\error <> "" : *t\error = "project staging failed: " + stage\error
+    Else : *t\error = "entry must be a regular file: " + *t\sourceFile
+    EndIf
+    ProcedureReturn
+  EndIf
+
   Protected base$ = GetTemporaryDirectory()
   CompilerIf #PB_Compiler_OS = #PB_OS_Linux
-    ; Defense in depth: ProcQ now DQUOTE-wraps whitespace args (S6-sealed
-    ; grouping semantics), but keeping the spawn arguments whitespace-free
-    ; entirely avoids the splitter altogether. /tmp is the portable
-    ; fallback when TMPDIR is exotic. (Linux branch only; the Windows
-    ; pipeline relies on quoting alone.)
+    ; Keep ProcQ arguments whitespace-free when TMPDIR contains spaces.
     If (FindString(base$, " ", 1) Or FindString(base$, Chr(9), 1)) And FileSize("/tmp") = -2
       base$ = "/tmp"
     EndIf
   CompilerEndIf
+  base$ = ProjectNormalizedPath(base$)
+  If ProjectPathWithin(base$, *t\sourceRoot)
+    *t\error = "temporary staging destination would be inside projectRoot: " + base$ + "; choose a narrower projectRoot"
+    ProcedureReturn
+  EndIf
+
+  stage\started = ElapsedMilliseconds()
+  If Not ProjectTimeAvailable(@stage, *t\sourceRoot)
+    *t\error = "project staging failed: " + stage\error
+    ProcedureReturn
+  EndIf
+  stage\entries = 0 : stage\bytes = 0
+  If Not ProjectVisitDirectory(*t\sourceRoot, "", 0, @stage, #False)
+    *t\error = "project staging failed: " + stage\error + "; check projectRoot, links, permissions, and the staging limits"
+    ProcedureReturn
+  EndIf
+  Protected expectedEntries.i = stage\entries
+  Protected expectedBytes.q = stage\bytes
+
   If Right(base$, 1) <> #PathSep$ : base$ + #PathSep$ : EndIf
   Protected tries.i
   For tries = 1 To 20
     Protected dir$ = base$ + "pbmcp-" + Str(ElapsedMilliseconds()) + "-" + Str(Random(999999))
     If CreateDirectory(dir$)
-      Protected file$ = dir$ + #PathSep$ + GetFilePart(SourceFile$)
-      If CopyFile(SourceFile$, file$)
-        *t\dir = dir$
-        *t\file = file$
-        *t\ok = #True
-        ProcedureReturn
-      EndIf
-      DeleteDirectory(dir$, "")
+      *t\dir = dir$ ; own it before any further operation can fail
+      *t\root = PathJoin(dir$, "project")
+      Break
     EndIf
     Delay(2)
   Next
+  If *t\dir = ""
+    *t\error = "project staging failed: cannot create an owned temporary workspace under " + base$
+    ProcedureReturn
+  EndIf
+
+  stage\entries = 0 : stage\bytes = 0
+  If Not ProjectVisitDirectory(*t\sourceRoot, *t\root, 0, @stage, #True)
+    *t\error = "project staging failed: " + stage\error + "; partial staged files were discarded"
+    CleanupTempDir(*t\dir)
+    *t\dir = "" : *t\root = ""
+    ProcedureReturn
+  EndIf
+  If stage\entries <> expectedEntries Or stage\bytes <> expectedBytes
+    *t\error = "project staging failed: source tree changed between validation and copy at " + *t\sourceRoot
+    CleanupTempDir(*t\dir)
+    *t\dir = "" : *t\root = ""
+    ProcedureReturn
+  EndIf
+
+  Protected relativeFile$ = Mid(*t\sourceFile, Len(*t\sourceRoot) + 1)
+  If Left(relativeFile$, 1) = #PathSep$ : relativeFile$ = Mid(relativeFile$, 2) : EndIf
+  *t\file = PathJoin(*t\root, relativeFile$)
+  If FileSize(*t\file) < 0
+    *t\error = "project staging failed: staged entry is missing: " + *t\file
+    CleanupTempDir(*t\dir)
+    *t\dir = "" : *t\root = "" : *t\file = ""
+    ProcedureReturn
+  EndIf
+  *t\ok = #True
 EndProcedure
 
 ; cleanupTemp: best-effort recursive delete; AV scanners hold fresh exes for
-; a few hundred ms, hence the backoff. Failures stay silent.
+; a few hundred ms, hence the bounded backoff. Only callers holding the
+; recorded owned workspace path may invoke this.
 Procedure CleanupTempDir(Dir$)
-  Protected delays.i = 0
-  Protected attempt.i, delay.i
-  For attempt = 0 To 3   ; [0, 100, 250, 500] like cleanupTemp
-    If attempt = 0
-      delay = 0
-    ElseIf attempt = 1
-      delay = 100
-    ElseIf attempt = 2
-      delay = 250
-    Else
-      delay = 500
+  If Dir$ = "" : ProcedureReturn : EndIf
+  Protected delay.i, attempt.i
+  For attempt = 0 To 3   ; [0, 100, 250, 500] bounded AV-lock retry
+    If attempt = 0 : delay = 0
+    ElseIf attempt = 1 : delay = 100
+    ElseIf attempt = 2 : delay = 250
+    Else : delay = 500
     EndIf
     If delay > 0 : Delay(delay) : EndIf
     If DeleteDirectory(Dir$, "", #PB_FileSystem_Recursive | #PB_FileSystem_Force)
@@ -633,7 +1008,12 @@ Procedure.s ReadSourceWhole(File$)
   Protected f.i = ReadFile(#PB_Any, File$)
   If f = 0 : ProcedureReturn "" : EndIf
   Protected *buf = AllocateMemory(size + 1)
-  ReadData(f, *buf, size)
+  If *buf = 0 : CloseFile(f) : ProcedureReturn "" : EndIf   ; "" = unreadable, per the contract
+  If ReadData(f, *buf, size) <> size   ; short read: decoding `size` bytes would read garbage
+    CloseFile(f)
+    FreeMemory(*buf)
+    ProcedureReturn ""
+  EndIf
   CloseFile(f)
   Protected s$ = PeekS(*buf, size, #PB_UTF8 | #PB_ByteLength)
   FreeMemory(*buf)
@@ -976,11 +1356,12 @@ Structure CheckResT
   timedOut.i
   rawTail.s
   sourceText.s
+  stagingError.s
   List errors.DiagT()
 EndStructure
 
 ; runCheck: temp-copy + /CHECK + parse + rawTail extraction.
-Procedure RunCheck(CompilerExe$, AbsFile$, *c.CheckResT)
+Procedure RunCheck(CompilerExe$, AbsFile$, ProjectRoot$, *c.CheckResT)
   ClearList(*c\errors())
   *c\ok = #False
   *c\lineCount = 0
@@ -988,15 +1369,16 @@ Procedure RunCheck(CompilerExe$, AbsFile$, *c.CheckResT)
   *c\timedOut = #False
   *c\rawTail = ""
   *c\sourceText = ""
+  *c\stagingError = ""
 
   Protected src$ = ReadSourceWhole(AbsFile$)
   *c\sourceText = src$   ; single read: ToolCheck reuses this for hints/BpScan
   *c\lineCount = SourceLines(src$)
 
   Protected copy.TempCopyT
-  MakeTempCopy(AbsFile$, @copy)
+  MakeTempCopy(AbsFile$, ProjectRoot$, @copy)
   If copy\ok = #False
-    *c\rawTail = "cannot create temp copy of " + AbsFile$
+    *c\stagingError = copy\error
     ProcedureReturn
   EndIf
 
@@ -1046,6 +1428,13 @@ Procedure ToolCheck(IdValue.i, Args.i)
   EndIf
   Protected fileArg$ = sOut\s
 
+  Protected rootOut.String
+  issue$ = ValidateStrArg(Args, "projectRoot", 0, #False, @rootOut)
+  If issue$ <> ""
+    SendInvalidParams(IdValue, "pb_check", issue$)
+    ProcedureReturn
+  EndIf
+
   Protected abs$ = ResolvePath(fileArg$)
   If FileSize(abs$) = -1
     SendTextResult(IdValue, "File not found: " + abs$, #True)
@@ -1053,7 +1442,11 @@ Procedure ToolCheck(IdValue.i, Args.i)
   EndIf
 
   Protected res.CheckResT
-  RunCheck(compiler$, abs$, @res)
+  RunCheck(compiler$, abs$, rootOut\s, @res)
+  If res\stagingError <> ""
+    SendTextResult(IdValue, res\stagingError, #True)
+    ProcedureReturn
+  EndIf
 
   ; metrics: one compile event, resolved path, real error parsing -
   ; ONLY on the success path

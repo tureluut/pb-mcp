@@ -685,15 +685,25 @@ Procedure.s HtmlCommandJson(Library$, File$)
 EndProcedure
 
 Procedure ScanCommandPage(Path$, Library$, RelFile$)
-  Protected f.i = ReadFile(#PB_Any, Path$), n.i, *buffer
+  Protected f.i = ReadFile(#PB_Any, Path$), n.i, *buffer, got.i
   If f = 0
     ConsoleError("pbmcp: cannot open HTML file: " + Path$)
     End 1
   EndIf
   n = Lof(f)
   *buffer = AllocateMemory(n + 1)
-  If n > 0 : ReadData(f, *buffer, n) : EndIf
+  If *buffer = 0
+    ConsoleError("pbmcp: cannot allocate " + Str(n + 1) + " bytes for: " + Path$)
+    CloseFile(f)
+    End 1
+  EndIf
+  got = 0
+  If n > 0 : got = ReadData(f, *buffer, n) : EndIf
   CloseFile(f)
+  If got <> n   ; short read: do not decode n bytes of a partial buffer
+    ConsoleError("pbmcp: short read on HTML file: " + Path$)
+    End 1
+  EndIf
   gHtmlSource$ = PeekS(*buffer, n, #PB_UTF8 | #PB_ByteLength)
   FreeMemory(*buffer)
   HtmlParseTree(gHtmlSource$)

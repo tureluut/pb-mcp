@@ -18,8 +18,8 @@ dependencies (no Node, no npx).
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `pb_docs_search` | Search the PureBasic command reference. Returns command names, library, and one-line summaries. Optional `library` filter, `limit` (1–25, default 10).                                                              |
 | `pb_command`     | Full documentation for one command: exact syntax, parameters, return value, remarks, example, supported OS, related commands. Also resolves reference-page titles (Compiler Directives, Includes, migration guides, UserGuide) to their full-text URL.                                                        |
-| `pb_check`       | Syntax-check a `.pb` file with the **real compiler** (~350 ms). Returns structured errors with line numbers, high-confidence hints on common beginner errors, and always-on best-practice notes (missing `EnableExplicit`, `Global` inside procedures, `Goto`/`Gosub`). The file is never modified — a temp copy is compiled.                                                   |
-| `pb_run`         | Compile and run a console program, capturing stdout. Accepts `args[]` and `timeoutMs` (default 15000, max 60000). Console programs only; the program runs with the source file's directory as its working directory. |
+| `pb_check`       | Syntax-check a `.pb` file with the **real compiler** (~350 ms). Returns structured errors with line numbers, high-confidence hints on common beginner errors, and always-on best-practice notes (missing `EnableExplicit`, `Global` inside procedures, `Goto`/`Gosub`). The file's project tree is staged to a bounded temporary workspace (see [Project staging](#project-staging)); originals are never modified.                                                                                                     |
+| `pb_run`         | Compile and run a console program, capturing stdout. Accepts `args[]` and `timeoutMs` (default 15000, max 60000). Console programs only; the program runs inside the staged copy with the entry file's directory as its working directory, so relative resources and executable-relative DLLs come from the copied project. Generated files are ephemeral and removed with the workspace. |
 | `pb_version`     | Report the server version, MCP protocol version, detected PureBasic compiler version + install path, and the docs-index version + build date + entry counts. Takes no arguments.                                     |
 
 The docs tools answer from a docs index built by the repo's Node tooling
@@ -84,10 +84,6 @@ Build options:
 
     build.cmd check      authoritative 6.40 /CHECK on the real tree
 
-(`pb_check` compiles a temp copy of the main file only and cannot resolve the
-relative sibling includes, so `build.cmd check` is the authoritative syntax
-gate.)
-
 ### Linux
 
 The same tree builds natively on Linux (PureBasic 6.x for Linux x64 + gcc
@@ -100,8 +96,88 @@ for linking; bash):
 The only deliberate difference from `build.cmd`: the Linux compile passes
 `--thread`. The non-TS runtime heap-corrupts when the docs-index preload
 thread runs concurrently with main-thread runtime use — measured, see
-`PORTING-LINUX.md`. The Windows build stays non-TS. Compiler discovery
-matches the table above; `PBMCP_OUT` overrides the output path on both OSes.
+`PORTING-LINUX.md`. The Windows build stays non-TS, and for the same
+reason its serve mode defaults the docs-index preload **off**: the index
+loads lazily on the first docs call (`PBMCP_PRELOAD=1` force-enables the
+background preload; known heap-corruption hazard — same note). Compiler
+discovery matches the table above; `PBMCP_OUT` overrides the output path
+on both OSes.
+
+## Project staging
+
+Both compiler tools accept an optional `projectRoot` (absolute, or relative
+to the server's startup directory). The entry `file` keeps its usual
+interpretation; the root only selects what gets staged:
+
+- **Default root** — the entry file's parent directory.
+- **Explicit root** — pass `projectRoot` when the project reaches outside
+  the entry's directory, e.g. a parent-relative include:
+
+        myproject/
+          common.pbi          shared with the sibling below
+          gui/window.pb       XIncludeFile "../common.pbi"
+          src/main.pb
+
+  `pb_check { file: "myproject/gui/window.pb", projectRoot: "myproject" }`
+  stages the whole tree, so `../common.pbi` resolves like a native build.
+- **What is copied** — the complete tree (sources, `.pbi`, DLLs/shared
+  libraries, libraries, resources, data, empty directories), preserving
+  relative paths. Only VCS metadata (`.git`, `.hg`, `.svn`) is excluded.
+- **Limits** — 10,000 entries, 256 MiB of regular-file bytes, nesting depth
+  64, 15 s staging time. Exceeding one returns an actionable error; narrow
+  the root.
+- **Links are rejected** — symbolic links on Linux and junctions/reparse
+  points on Windows (including dangling ones) fail staging instead of being
+  followed. Stage regular files only.
+- **Execution moves into the copy** — `pb_run` compiles beside the staged
+  entry file and runs with that directory as cwd, so executable-relative DLL
+  placement (`GetPathPart(ProgramFilename())`) works as in a native build.
+  Files the program writes are ephemeral: they live in the workspace and are
+  deleted with it. Nothing is copied back — migrate outputs explicitly if
+  you relied on the old write-into-the-source-tree behavior.
+- **External dependencies** — anything outside the root (SDK DLLs, data on
+  another drive) must be moved/vendored inside the root or encompassed by a
+  larger explicit root. Staging is not a sandbox: absolute paths still reach
+  the originals, so only trusted code should be run.
+
+## HTTP transport
+
+    pbmcp http --port 6817 --auth-file /secure/path/auth.json
+
+- **Endpoint** — `http://127.0.0.1:<port>/mcp` (default port 6817; any
+  integer 1–65000). HTTP requires a credential verifier file on every
+  invocation and binds `127.0.0.1` only. No anonymous or non-loopback backend
+  mode exists. See [INSTALL.md](INSTALL.md#3-optional-authenticated-http-and-https-gateway)
+  for secure token provisioning and the canonical Caddy HTTPS gateway.
+- **Authentication/profile** — each request needs a manually provisioned
+  `Authorization: Bearer <token>` header. Default HTTP exposes only
+  `pb_docs_search` and `pb_command`; `--allow-compiler-tools` explicitly
+  enables `pb_check`, `pb_run` and `pb_version` for every configured client.
+  That opt-in is for trusted clients on an isolated host, not a sandbox.
+  HTTP credentials are preconfigured bearer authentication, not MCP OAuth or
+  authorization discovery. Native clients must support a manual auth header;
+  browser/CORS access is unsupported. A VPN or SSH tunnel is safer than public
+  exposure.
+- **Protocol** — MCP `2025-11-25`, stateless Streamable HTTP: one JSON-RPC
+  message per POST, `application/json` results, `202` for notifications and
+  responses. No sessions, no SSE streaming, no server-to-client requests.
+  Clients send `Accept: application/json, text/event-stream` and, after
+  initialization, `MCP-Protocol-Version: 2025-11-25`.
+- **stdio is unchanged** — the default mode keeps speaking MCP
+  `2025-03-26` over newline-framed stdin/stdout. Clients that cannot
+  negotiate `2025-11-25` keep using stdio.
+- **Boundary and admission** — browser origins are rejected; Caddy preserves
+  Origin and the backend rejects it. HTTP requires bearer auth, limits each
+  client to a burst of 10 then 1 request/second, and emits redacted audit
+  events to stderr. These measures do not provide volumetric DDoS protection.
+- **Serialized execution** — tool calls run one at a time on the main
+  thread; a long compile/run delays all HTTP servicing until it finishes.
+  Network receive/send bounds are 10 seconds, not an execution deadline.
+- **Bounded framing** — 16 connections, 16 KiB headers, 1 MiB body,
+  keepalive/chunked/HTTP/2 unsupported (rejected without dispatch).
+- **Docs-index preload** — thread-safe builds (`--thread`, Linux) load the
+  docs index in a background thread at startup. The Windows non-thread-safe
+  build has a known preload race; deployment guidance sets `PBMCP_PRELOAD=0`.
 
 ## Distribution
 
@@ -112,7 +188,8 @@ running server cannot lock the target), smoke-tests that the artifact
 launches, and assembles the self-contained bundle:
 
     dist/pbmcp[.exe]                  native server binary
-    dist/index.json                   current docs index (swap for another index-*.json)
+    dist/index-*.json                 newest repo-root docs index (working drop-in;
+                                      embedded placeholder covers when absent)
     dist/README.md
     dist/INSTALL.md                   quickstart for binary consumers
     dist/skills/purebasic/            companion agent skill (SKILL.md + references/)
@@ -170,12 +247,15 @@ shape under `"mcpServers"`. On Linux the command is e.g.
 
 (`pbmcp.exe` below; on Linux the binary is `pbmcp`)
 
-    pbmcp.exe                                      serve MCP (default)
+    pbmcp.exe                                      serve MCP over stdio (default)
     pbmcp.exe version                              server/protocol/PureBasic/docs-index versions (also `--version`, `-v`)
     pbmcp.exe scan <html> [<library> <relfile>]    parse one command page as JSON (test utility)
     pbmcp.exe test <file>                          replay a golden .jsonl session (test runner)
+    pbmcp.exe http --port 6817 --auth-file <path>  authenticated loopback HTTP (see [HTTP transport](#http-transport))
 
-Protocol: MCP over stdio — JSON-RPC 2.0, newline-framed UTF-8.
+Protocol: MCP over stdio — JSON-RPC 2.0, newline-framed UTF-8,
+`2025-03-26`; the optional HTTP mode speaks stateless Streamable HTTP with
+`2025-11-25`.
 
 ## Environment variables
 
@@ -185,7 +265,7 @@ Protocol: MCP over stdio — JSON-RPC 2.0, newline-framed UTF-8.
 | `PUREBASIC_MCP_INDEX`        | Pin an explicit docs index file (overrides exe-dir/embedded discovery)                                     |
 | `PUREBASIC_MCP_METRICS`      | Redirect the JSONL metrics file                                                                            |
 | `PUREBASIC_MCP_NO_METRICS=1` | Disable metrics writes entirely                                                                            |
-| `PBMCP_PRELOAD=0`            | Disable the serve-mode background docs-index preload (index loads lazily on the first docs call)           |
+| `PBMCP_PRELOAD`              | Serve-mode background docs-index preload. Default: on in thread-safe builds (`--thread` Linux), **off** on the non-thread-safe Windows build (lazy first-docs-call load; the overlap corrupts the heap). `0` forces it off everywhere; `1` force-enables it (known hazard on the Windows non-TS build) |
 
 The metrics file defaults to `<cache>/purebasic-mcp/metrics.jsonl`, where
 `<cache>` is `%LOCALAPPDATA%` on Windows and `${XDG_CACHE_HOME:-~/.cache}`
@@ -227,9 +307,11 @@ untouched — only the docs tools report the missing-index hint.
 
 ## Tests
 
-    node test/run_tests.mjs    # full acceptance suite: framing + multibyte,
-                               # protocol, docs tools, pb_check, pb_run,
-                               # metrics, wiring, missing-index UX, scanner
+    node test/run_tests.mjs       # full acceptance suite: framing + multibyte,
+                                  # protocol, docs tools, pb_check, pb_run,
+                                  # metrics, wiring, missing-index UX, scanner
+    node --test test/project.test.mjs   # project staging/safety/runtime (focused)
+    node --test test/http.test.mjs      # HTTP protocol/security/integration (focused)
 
 Set `PBMCP_EXE` to test a build elsewhere (e.g. `test/out_version/`) — the
 repo-root exe is locked while a live server runs on it.
@@ -241,17 +323,18 @@ exercise the primary branch.
 
 ## Layout
 
-    src/main.pb        entry, arg parse (serve | index | scan | test)
+    src/main.pb        entry, arg parse (serve | http | version | scan | test)
     src/console.pb     WriteLine (UTF-8, LF-framed), RunFile, byte-level RunStdin
-    src/jsonrpc.pb     request parse, response/error builders, id copy
+    src/jsonrpc.pb     request parse, response/error builders, transport sink, id copy
     src/config.pb      PB home discovery, /VERSION detect, capability flags, cache dir
     src/metrics.pb     JSONL metrics (frozen record shape), error-bucket classifier
     src/docs_index.pb  docs index cache + search + lookup + did-you-mean
     src/html_scan.pb   native HTML scanner + `scan` mode
     src/pbdocs-index.json   embedded docs index (DataSection; placeholder = empty valid index)
-    src/tool_check.pb  shared compiler pipeline (spawn/capture/temp dirs) + pb_check
-    src/tool_run.pb    pb_run (compile to /EXE, run, timeout, tree-kill)
+    src/tool_check.pb  shared compiler pipeline (staging, spawn/capture, diagnostics) + pb_check
+    src/tool_run.pb    pb_run (staged compile/run, timeout, tree-kill)
     src/tools.pb       tool registry, tools/list schemas, docs tool handlers
+    src/http.pb        bounded authenticated loopback Streamable HTTP adapter
     tools/lint_encoding.ps1   build-time encoding gate (Windows)
     tools/lint_encoding.sh    build-time encoding gate (Linux; same BOM rule)
     build.sh / make-dist.sh   Linux build + packaging (build.cmd / make-dist.cmd ports)

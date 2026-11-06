@@ -7,7 +7,10 @@
 #
 # Output layout:
 #   dist/pbmcp
-#   dist/index.json          current docs index (swap for another index-*.json)
+#   dist/index-*.json        newest repo-root index-*.json copied verbatim -
+#                            a working docs-index drop-in (the loader's glob is
+#                            index-*.json; plain index.json is ignored). When
+#                            none exists the binary's embedded placeholder covers.
 #   dist/README.md
 #   dist/INSTALL.md
 #   dist/skills/purebasic/        complete skill (SKILL.md + references/)
@@ -35,7 +38,13 @@ fi
 echo "make-dist: copying docs + skill"
 cp README.md dist/ || fail
 cp INSTALL.md dist/ || fail
-[ -f src/pbdocs-index.json ] && cp src/pbdocs-index.json dist/index.json
+idx=$(ls -t index-*.json 2>/dev/null | head -n 1)
+if [ -n "$idx" ]; then
+  echo "make-dist: docs index drop-in - $idx"
+  cp "$idx" dist/ || fail
+else
+  echo "make-dist: no index-*.json at repo root - binary falls back to the embedded placeholder"
+fi
 echo "make-dist: copying complete skill tree (SKILL.md + references/)"
 cp -R skills/purebasic/. dist/skills/purebasic/ || fail
 

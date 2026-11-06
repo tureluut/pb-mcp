@@ -16,9 +16,14 @@ precedence over batching shortcuts. Compilation does not prove runtime behavior.
 
 ## MCP documentation and verification
 
+When this server is used over HTTP, remember that the default profile is
+docs-only; compiler tools require explicit opt-in on a trusted isolated host.
+The HTTP endpoint requires bearer credentials and remains loopback-only behind
+an HTTPS gateway. See the repository's `INSTALL.md` for deployment details.
+
 MCP is the primary workflow: command search → exact documentation → compilation
 → noninteractive console tests where applicable. For reference-page lookup,
-relative-include limitations, safe execution, and unavailable-tool handling,
+relative-include staging, safe execution, and unavailable-tool handling,
 read [`references/tooling.md`](references/tooling.md) when relevant.
 The tested scope, array-read, and parsing cases are recorded in
 [`references/verification.md`](references/verification.md); other guidance is
@@ -201,9 +206,9 @@ connections).
 ## Verification discipline
 
 - Check each coherent edit batch with `pb_check`; fix compilation errors
-  before running. If the tool's temporary-copy behavior prevents checking
-  the project, follow the tooling reference rather than changing production
-  includes to machine-specific absolute paths.
+  before running. If a check fails because the project reaches outside the
+  staged root, widen `projectRoot` (see the tooling reference) rather than
+  changing production includes to machine-specific absolute paths.
 - Use `pb_run` only for bounded, noninteractive console tests. Record the
   actual output and exit status, not just the intended result.
 - Run development and test builds under the debugger: it reports invalid

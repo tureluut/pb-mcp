@@ -6,11 +6,20 @@
 - Use `pb_docs_search` to find command names. Use `pb_command` to check exact syntax, parameters, return values, flags, and supported OS. Do not infer names or flags from another language or an older PB version.
 - For reference pages, `pb_command` may return the full-text URL rather than the page contents. Fetch that official URL when details are needed; do not inspect MCP server internals.
 
+## HTTP deployments
+
+The optional HTTP transport requires a verifier file and bearer authorization on
+every request. Its default profile exposes only `pb_docs_search` and
+`pb_command`; compiler tools require explicit `--allow-compiler-tools` and a
+trusted, isolated host. HTTP remains loopback-only behind a separately
+configured HTTPS gateway. See the repository's `INSTALL.md` for deployment,
+token-handling, and client compatibility details.
+
 ## Compile and run
 
 - `pb_check` compiles a temporary copy of the main source file and does not modify the project. Use it after each coherent edit batch; isolate a change sooner when needed to diagnose a failure.
 - `pb_run` compiles and executes a console program. Use it only for bounded, noninteractive tests. Do not run a GUI, screen/keyboard loop, or a program waiting for user input; it may block until timeout. Record observed output and exit status.
-- The MCP temporary-copy workflow may not resolve a relative `XIncludeFile` next to the original source. This is a tool limitation, not a reason to replace portable project includes with machine-specific absolute paths. If an include check fails, report the limitation; verify through the project-native compiler/build workflow when available, or ask the user if that is required and unavailable.
+- `pb_check` and `pb_run` stage the selected project tree into a bounded temporary workspace, so portable relative `XIncludeFile`s resolve like a native build. Pass `projectRoot` when the project reaches outside the entry file's directory (for example a parent-relative include); the default root is the entry file's parent. Symlinks/junctions, dangling links, oversized trees, and special entries are rejected with an actionable error — keep regular files inside the chosen root. `pb_run` executes inside the staged copy with the entry directory as cwd, so executable-relative DLL/assets lookups work; files the program writes are ephemeral and removed with the workspace, and nothing is copied back to the original tree.
 - Prefer MCP over invoking `pbcompiler` through shells where argument translation may alter compiler switches. Use another compiler route only when MCP cannot verify the project and the alternative is safe and available.
 - The MCP `pb_check`/`pb_run` interface exposes no thread-safe compiler option. Code that uses threads must be verified with the project's native thread-safe build (`/THREAD` on Windows, `--thread` on Linux); a plain MCP execution does not verify thread-safe behavior. MCP checks remain useful for syntax and non-threaded logic.
 

@@ -11,8 +11,12 @@ Declare ToolList(IdValue.i)
 Declare ToolDispatch(IdValue.i, Params.i)
 
 #PROTOCOL_VERSION$ = "2025-03-26"
+#HTTP_PROTOCOL_VERSION$ = "2025-11-25"
+Global gHttpMode.i = #False
+Global gHttpAllowCompilerTools.i = #False
+Global gHttpCapturedResponse.s = ""
 #SERVER_NAME$      = "purebasic-mcp-pb"
-#SERVER_VERSION$   = "0.3.3"   ; 0.3.3: pb_check best-practices support (proc-scope hints, always-on lint)
+#SERVER_VERSION$   = "0.4.0"   ; 0.4.0: Streamable HTTP transport (pbmcp http), project staging for pb_check/pb_run, preload default off on non-TS builds
 
 ; serverInfo.version and the version CLI line share ServerVersionFull().
 ; The build stamp is the COMPILE date (#PB_Compiler_Date): a PB constant
@@ -95,6 +99,7 @@ EndProcedure
 ; Reach the result via GetJSONMember(JSONValue(json), "result").
 Procedure.i BeginResponse(IdValue.i)
   Protected json.i = CreateJSON(#PB_Any)
+  If json = 0 : End 1 : EndIf   ; OOM: no response can be built
   Protected root.i = JSONValue(json)
   SetJSONObject(root)
   SetJSONString(AddJSONMember(root, "jsonrpc"), "2.0")
@@ -106,13 +111,24 @@ Procedure.i BeginResponse(IdValue.i)
   ProcedureReturn json
 EndProcedure
 
+Procedure.s ActiveProtocolVersion()
+  If gHttpMode : ProcedureReturn #HTTP_PROTOCOL_VERSION$ : EndIf
+  ProcedureReturn #PROTOCOL_VERSION$
+EndProcedure
+
 Procedure FinishResponse(json.i)
-  WriteLine(ComposeJSON(json))
+  Protected response$ = ComposeJSON(json)
+  If gHttpMode
+    gHttpCapturedResponse = response$
+  Else
+    WriteLine(response$)
+  EndIf
   FreeJSON(json)
 EndProcedure
 
 Procedure SendError(IdValue.i, Code.i, Message$)
   Protected json.i = CreateJSON(#PB_Any)
+  If json = 0 : End 1 : EndIf   ; OOM: no error response can be built
   Protected root.i = JSONValue(json)
   SetJSONObject(root)
   SetJSONString(AddJSONMember(root, "jsonrpc"), "2.0")
@@ -259,10 +275,11 @@ Procedure HandleLine(Raw$)
         ; Version negotiation (MCP spec MUST): answer with a version the
         ; server supports - echo the client's offer only when it matches the
         ; supported version, otherwise reply with #PROTOCOL_VERSION$.
-        Protected pv$ = #PROTOCOL_VERSION$
+        Protected supportedVersion$ = ActiveProtocolVersion()
+        Protected pv$ = supportedVersion$
         If params
           Protected pvm.i = GetJSONMember(params, "protocolVersion")
-          If pvm And JSONType(pvm) = #PB_JSON_String And GetJSONString(pvm) = #PROTOCOL_VERSION$
+          If pvm And JSONType(pvm) = #PB_JSON_String And GetJSONString(pvm) = supportedVersion$
             pv$ = GetJSONString(pvm)
           EndIf
         EndIf
@@ -281,7 +298,11 @@ Procedure HandleLine(Raw$)
         SetJSONObject(info)
         SetJSONString(AddJSONMember(info, "name"), #SERVER_NAME$)
         SetJSONString(AddJSONMember(info, "version"), ServerVersionFull())
-        SetJSONString(AddJSONMember(result, "instructions"), "Search before writing PureBasic (pb_docs_search, pb_command), verify every edit with pb_check, and use pb_run only for bounded console tests.")
+        Protected instructions$ = "Search before writing PureBasic (pb_docs_search, pb_command), verify every edit with pb_check, and use pb_run only for bounded console tests."
+        If gHttpMode And Not gHttpAllowCompilerTools
+          instructions$ = "Search the PureBasic documentation with pb_docs_search and pb_command. This HTTP server exposes documentation tools only; compiler and execution tools are unavailable."
+        EndIf
+        SetJSONString(AddJSONMember(result, "instructions"), instructions$)
         FinishResponse(resp)
       EndIf
     Case "tools/list"

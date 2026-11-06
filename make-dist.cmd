@@ -8,7 +8,10 @@ rem Usage:  make-dist.cmd
 rem
 rem Output layout:
 rem   dist\pbmcp.exe
-rem   dist\index.json         current docs index (swap for another index-*.json)
+rem   dist\index-*.json       newest repo-root index-*.json copied verbatim -
+rem                           a working docs-index drop-in (the loader's glob is
+rem                           index-*.json; plain index.json is ignored). When
+rem                           none exists the binary's embedded placeholder covers.
 rem   dist\README.md
 rem   dist\INSTALL.md
 rem   dist\skills\purebasic\         complete skill (SKILL.md + references\)
@@ -34,7 +37,14 @@ if errorlevel 1 (
 echo make-dist: copying docs + skill
 copy /y "README.md"                 "dist\" >nul || goto :fail
 copy /y "INSTALL.md"                "dist\" >nul || goto :fail
-if exist "src\pbdocs-index.json" copy /y "src\pbdocs-index.json" "dist\index.json" >nul
+set "IDX="
+for /f "delims=" %%f in ('dir /b /o-d "index-*.json" 2^>nul') do if not defined IDX set "IDX=%%f"
+if defined IDX (
+    echo make-dist: docs index drop-in - %IDX%
+    copy /y "%IDX%" "dist\%IDX%" >nul || goto :fail
+) else (
+    echo make-dist: no index-*.json at repo root - binary falls back to the embedded placeholder
+)
 echo make-dist: copying complete skill tree (SKILL.md + references\)
 xcopy /e /i /y "skills\purebasic" "dist\skills\purebasic\" >nul || goto :fail
 

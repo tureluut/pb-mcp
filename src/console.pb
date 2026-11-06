@@ -58,6 +58,7 @@ Procedure WriteLine(Text$)
   Protected s$ = Text$ + Chr(10)
   Protected len.i = StringByteLength(s$, #PB_UTF8)
   Protected *buf = AllocateMemory(len + 1)
+  If *buf = 0 : End 1 : EndIf   ; OOM: the protocol line cannot be built
   PokeS(*buf, s$, -1, #PB_UTF8)
   WriteConsoleData(*buf, len)
   FreeMemory(*buf)
@@ -106,6 +107,7 @@ EndProcedure
 Procedure RunStdin()
   Protected cap.i = #STDIN_CHUNK
   Protected *buf = AllocateMemory(cap)
+  If *buf = 0 : End 1 : EndIf   ; same contract as the grow path below
   Protected len.i = 0, n.i, start.i, i.i, errStreak.i
   CompilerIf #PB_Compiler_OS = #PB_OS_Linux
     Protected fd.i = gStdinFd      ; the captured stdin (see StdinCapture);

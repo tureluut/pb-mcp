@@ -340,7 +340,7 @@ EndProcedure
 ; ---------------------------------------------------------------------------
 Procedure ToolVersion(IdValue.i, Args.i)
   DocsIndexEnsure()
-  Protected out$ = #SERVER_NAME$ + " " + ServerVersionFull() + ", MCP protocol " + #PROTOCOL_VERSION$
+  Protected out$ = #SERVER_NAME$ + " " + ServerVersionFull() + ", MCP protocol " + ActiveProtocolVersion()
   Protected home$ = ConfigPbHome()
   Protected pb$ = ConfigVersion()
   If home$ = ""
@@ -393,14 +393,18 @@ Procedure ToolList(IdValue.i)
   AddRequired(schema, "name")
   FinishSchema(schema)
 
+  ; Compiler and version tools are visible in stdio and only in explicitly
+  ; opted-in HTTP processes. Keep their schema construction/order unchanged.
+  If Not gHttpMode Or gHttpAllowCompilerTools
   ; 3. pb_check
   schema = AddTool(tools, "pb_check", "Syntax-check PureBasic source",
     "Syntax-check a PureBasic source file with the real compiler (~350 ms). Returns structured errors with " +
     "line numbers, high-confidence hints on common beginner errors, and best-practice notes (missing " +
-    "EnableExplicit, Global inside procedures, Goto/Gosub). Run after every edit. The file is never " +
-    "modified (a temp copy is compiled).",
+    "EnableExplicit, Global inside procedures, Goto/Gosub). Run after every edit. The selected project " +
+    "tree is copied to a bounded temporary workspace and the original files are never modified.",
     #True, #False, -1)
   AddStrProp(GetJSONMember(schema, "properties"), "file", "Path to the .pb source file (absolute, or relative to this server's cwd)", 1, 0)
+  AddStrProp(GetJSONMember(schema, "properties"), "projectRoot", "Optional project directory to stage; defaults to the entry file's parent", 1, 0)
   AddRequired(schema, "file")
   FinishSchema(schema)
 
@@ -408,10 +412,12 @@ Procedure ToolList(IdValue.i)
   schema = AddTool(tools, "pb_run", "Compile and run PureBasic console program",
     "Compile and run a PureBasic console program, capturing stdout. The agent can verify behavior end-to-end. " +
     "Console programs only — a GUI program will block until timeout; use pb_check for GUI code instead. " +
-    "Console subsystem; 15 s default timeout. The source is compiled from a temp copy; the program runs with " +
-    "the source file's directory as its working directory.",
+    "Console subsystem; 15 s default timeout. The project tree is copied to a bounded temporary workspace; " +
+    "the program runs with the staged copy's entry directory as its working directory, so relative resources " +
+    "and executable-relative DLLs resolve from the copied project; generated files are ephemeral.",
     #False, #False, #False)
   AddStrProp(GetJSONMember(schema, "properties"), "file", "Path to the .pb source file (absolute, or relative to this server's cwd)", 1, 0)
+  AddStrProp(GetJSONMember(schema, "properties"), "projectRoot", "Optional project directory to stage; defaults to the entry file's parent", 1, 0)
   AddArrayProp(GetJSONMember(schema, "properties"), "args", "Arguments passed verbatim to the compiled program")
   AddIntProp(GetJSONMember(schema, "properties"), "timeoutMs", "Run timeout in ms (default 15000, max 60000)", 1000, 60000)
   AddRequired(schema, "file")
@@ -423,6 +429,7 @@ Procedure ToolList(IdValue.i)
     "and the docs-index version (which PureBasic help the docs tools answer from). Takes no arguments.",
     #True, -1, -1)
   FinishSchema(schema)
+  EndIf
 
   FinishResponse(json)
 EndProcedure
@@ -434,6 +441,10 @@ EndProcedure
 Procedure ToolDispatch(IdValue.i, Params.i)
   Protected name$ = MemberStr(Params, "name", "")
   Protected args.i = GetJSONMember(Params, "arguments")
+  If gHttpMode And Not gHttpAllowCompilerTools And (name$ = "pb_check" Or name$ = "pb_run" Or name$ = "pb_version")
+    SendTextResult(IdValue, "Tool unavailable in this HTTP profile: " + name$, #True)
+    ProcedureReturn
+  EndIf
   Select name$
     Case "pb_docs_search"
       ToolDocsSearch(IdValue, args)

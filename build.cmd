@@ -5,8 +5,7 @@ rem build.cmd - one-command build for pbmcp.exe (PureBasic 6.40 x64).
 rem
 rem Usage:  build.cmd         lint + compile pbmcp.exe
 rem         build.cmd check   6.40 /CHECK on the real tree (authoritative
-rem                           syntax check; pi's pb_check cannot resolve the
-rem                           relative sibling includes - plan section 5)
+rem                           syntax check)
 rem
 rem Paths are absolute (%~dp0); no shell mangling possible under cmd.exe.
 rem MSYS2_ARG_CONV_EXCL additionally guards /SWITCH args when this script is

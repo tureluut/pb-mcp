@@ -335,6 +335,20 @@ EndProcedure
 ; s WaitThread returns - no mutex. PBMCP_PRELOAD=0 restores today's lazy
 ; path byte for byte (runtime kill-switch).
 ;
+; DEFAULT depends on the runtime, not the OS: overlapping the worker's PB
+; runtime calls (LoadJSON's ~215 ms parse, map inserts, DocsRecsBuild()'s
+; ReDim + ~5800 LCase allocations) with main-thread runtime use in the
+; request loop is only legal under a thread-safe runtime. The Windows build
+; (build.cmd) deliberately compiles WITHOUT /THREAD, and there the overlap
+; corrupted the heap: the process died mid-session with 0xC0000005 /
+; 0xC0000354 in ~8-15% of docs-call sessions - reproduced 2/24 piped
+; sessions, PBMCP_PRELOAD=0 24/24 clean (2026-11-06). A non-TS build
+; therefore defaults the preload OFF (lazy first-docs-call load, the
+; already-tested path - the WaitThread join itself was never the hazard;
+; the concurrent parse window starting at CreateThread was, and no race-
+; free worker restructure keeps a useful preload). A /THREAD build (Linux
+; --thread, REQUIRED there) keeps the warm preload default.
+;
 ; Never-worse rule: a docs call arriving before the load finishes blocks on
 ; the same worker, then DocsIndexInit() no-ops via gIndexReady - exactly the
 ; lazy path's latency. DocsPreloadStart() is serve-mode only (main.pb, after
@@ -346,10 +360,19 @@ EndProcedure
 Global gPreloadOn.i = -1         ; -1 = unprobed; else 0 (off) / 1 (on)
 Global gPreloadThread.i = 0      ; CreateThread handle while running
 
-; Probe PBMCP_PRELOAD exactly once ("0" = off, absent/anything else = on).
+; Probe PBMCP_PRELOAD exactly once:
+;   "0"    -> off on every build (runtime kill-switch, unchanged)
+;   "1"    -> on on every build (explicit opt-in; known heap-corruption
+;             hazard on a non-TS runtime - see the section comment above)
+;   absent -> on only under a thread-safe runtime (#PB_Compiler_Thread);
+;             a non-TS build takes the lazy path by default.
 Procedure.i DocsPreloadOn()
   If gPreloadOn = -1
-    gPreloadOn = Bool(GetEnvironmentVariable("PBMCP_PRELOAD") <> "0")
+    CompilerIf #PB_Compiler_Thread
+      gPreloadOn = Bool(GetEnvironmentVariable("PBMCP_PRELOAD") <> "0")
+    CompilerElse
+      gPreloadOn = Bool(GetEnvironmentVariable("PBMCP_PRELOAD") = "1")
+    CompilerEndIf
   EndIf
   ProcedureReturn gPreloadOn
 EndProcedure

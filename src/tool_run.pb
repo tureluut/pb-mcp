@@ -1,9 +1,10 @@
 ﻿; ---------------------------------------------------------------------------
-; tool_run.pb - pb_run implementation: compile a temp-dir copy as a console
-; app, then run the exe ourselves under full timeout/tree-kill control.
+; tool_run.pb - pb_run implementation: compile inside the staged project
+; workspace as a console app, then run the exe ourselves under full
+; timeout/tree-kill control.
 ;
 ; The shared pieces (process
-; runner, temp copy, diagnostics parsing, retry) live in tool_check.pb.
+; runner, project staging, diagnostics parsing, retry) live in tool_check.pb.
 ;
 ; Invariants (verified live during the spikes):
 ;   - the exe is built with an explicit absolute output-switch path: without
@@ -12,8 +13,8 @@
 ;     (POLINK access denied). 6.40 has no auto-launch but the same path is
 ;     safe and keeps one code path for both capability branches. Linux uses
 ;     the --output spelling (no "/"-switches there).
-;   - the program runs exactly ONCE, cwd = the ORIGINAL file's directory
-;     (relative data files keep working)
+;   - the program runs exactly ONCE, cwd = the staged entry directory
+;     (relative data files resolve inside the copied project)
 ;   - timeout: poll ProgramRunning() at ~15 ms; kill via taskkill /PID /T /F
 ;     (whole tree) + KillProgram backstop; panic deadline +10 s
 ;   - the temp tree is always cleaned up, also on the error path
@@ -24,6 +25,7 @@ EnableExplicit
 
 Structure RunResultT
   ok.i                  ; ran AND exit 0 AND not timed out
+  stagingError.s
   compileDurationMs.i
   noExecutable.i        ; compiler reported success but produced no exe
   timedOut.i            ; program timeout
@@ -38,6 +40,7 @@ EndStructure
 ; FormatRunResult: exit X · N s / TIMEOUT / COMPILE FAILED.
 Procedure.s FormatRunResult(*res.RunResultT, File$)
   Protected out$ = ""
+  If *res\stagingError <> "" : ProcedureReturn CapText(*res\stagingError, #RUN_SECTION_CAP) : EndIf
   If *res\hasRun = #False
     out$ = "COMPILE FAILED (" + File$ + ") — " + Str(ListSize(*res\compileErrors())) + " error(s), compile took " + Str(*res\compileDurationMs) + " ms"
     Protected shown.i = 0
@@ -87,7 +90,7 @@ Procedure.s JoinArgs(List Args$())
 EndProcedure
 
 ; runConsoleProgram port.
-Procedure RunConsoleProgram(CompilerExe$, AbsFile$, List ProgArgs$(), TimeoutMs.i, *res.RunResultT)
+Procedure RunConsoleProgram(CompilerExe$, AbsFile$, ProjectRoot$, List ProgArgs$(), TimeoutMs.i, *res.RunResultT)
   ClearList(*res\compileErrors())
   *res\ok = #False
   *res\compileDurationMs = 0
@@ -96,16 +99,12 @@ Procedure RunConsoleProgram(CompilerExe$, AbsFile$, List ProgArgs$(), TimeoutMs.
   *res\durationMs = 0
   *res\hasRun = #False
 
-  Protected runCwd$ = GetPathPart(AbsFile$)
   Protected t0.i = ElapsedMilliseconds()
 
   Protected copy.TempCopyT
-  MakeTempCopy(AbsFile$, @copy)
+  MakeTempCopy(AbsFile$, ProjectRoot$, @copy)
   If copy\ok = #False
-    ; cannot even copy - report as compile failure with a line-less error
-    AddElement(*res\compileErrors())
-    *res\compileErrors()\line = 0
-    *res\compileErrors()\message = "cannot create temp copy of " + AbsFile$
+    *res\stagingError = copy\error
     *res\durationMs = ElapsedMilliseconds() - t0
     ProcedureReturn
   EndIf
@@ -116,9 +115,21 @@ Procedure RunConsoleProgram(CompilerExe$, AbsFile$, List ProgArgs$(), TimeoutMs.
   Protected base$ = GetFilePart(copy\file)
   Protected dot.i = Len(base$)
   If dot > 3 And LCase(Right(base$, 3)) = ".pb" : dot - 3 : EndIf
-  Protected exe$ = PathJoin(copy\dir, Left(base$, dot) + #ExeSuffix$)
+  Protected runCwd$ = GetPathPart(copy\file)
+  Protected exe$ = PathJoin(runCwd$, Left(base$, dot) + #ExeSuffix$)
+  Protected fallback$ = PathJoin(runCwd$, "PureBasic" + #ExeSuffix$)
 
-  CompilerStepWithRetry(CompilerExe$, #SW_CONSOLE$, copy\file, exe$, @*res\compileRes)
+  ; A copied executable must never be mistaken for this compile's output.
+  If FileSize(exe$) >= 0 And DeleteFile(exe$, #PB_FileSystem_Force) = 0
+    *res\stagingError = "project staging failed: cannot remove stale staged executable " + exe$
+  EndIf
+  If *res\stagingError = "" And fallback$ <> exe$ And FileSize(fallback$) >= 0 And DeleteFile(fallback$, #PB_FileSystem_Force) = 0
+    *res\stagingError = "project staging failed: cannot remove stale fallback executable " + fallback$
+  EndIf
+
+  If *res\stagingError = ""
+    CompilerStepWithRetry(CompilerExe$, #SW_CONSOLE$, copy\file, exe$, @*res\compileRes)
+  EndIf
   *res\compileDurationMs = *res\compileRes\durationMs
   NewList ignoredWarnings.DiagT()
   ParseDiagnostics(*res\compileRes\stdout, *res\compileErrors(), ignoredWarnings())
@@ -130,7 +141,6 @@ Procedure RunConsoleProgram(CompilerExe$, AbsFile$, List ProgArgs$(), TimeoutMs.
     ; fell back to its default name in its cwd (the temp dir), use that.
     ; The fallback name follows the per-OS output naming (Windows: the 5.73
     ; default PureBasic.exe; Linux: extension-less).
-    Protected fallback$ = PathJoin(copy\dir, "PureBasic" + #ExeSuffix$)
     Protected actual$ = ""
     If FileSize(exe$) >= 0
       actual$ = exe$
@@ -194,6 +204,14 @@ Procedure ToolRun(IdValue.i, Args.i)
     EndIf
   EndIf
 
+  ; validate optional projectRoot (same resolution/selection contract as pb_check)
+  Protected rootOut.String
+  issue$ = ValidateStrArg(Args, "projectRoot", 0, #False, @rootOut)
+  If issue$ <> ""
+    SendInvalidParams(IdValue, "pb_run", issue$)
+    ProcedureReturn
+  EndIf
+
   ; validate 'timeoutMs' (optional; absent = default) - shared validator
   Protected timeout.i = #DEFAULT_RUN_TIMEOUT_MS
   issue$ = ValidateIntArg(Args, "timeoutMs", 1000, #MAX_RUN_TIMEOUT_MS, @timeout)
@@ -209,7 +227,11 @@ Procedure ToolRun(IdValue.i, Args.i)
   EndIf
 
   Protected res.RunResultT
-  RunConsoleProgram(compiler$, abs$, progArgs$(), timeout, @res)
+  RunConsoleProgram(compiler$, abs$, rootOut\s, progArgs$(), timeout, @res)
+  If res\stagingError <> ""
+    SendTextResult(IdValue, res\stagingError, #True)
+    ProcedureReturn
+  EndIf
 
   ; metrics: compile-scoped - runtime exit codes are
   ; behavior, not compile fixes; duration is the TOTAL wall time
